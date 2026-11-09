@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Secrets: never commit real keys
+.env
+
+# Editors / OS
+.vscode/
+.DS_Store

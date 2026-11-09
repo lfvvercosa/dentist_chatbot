@@ -1,0 +1,36 @@
+[project]
+name = "dentist-chatbot"
+version = "0.1.0"
+description = "Dental clinic AI assistant, built incrementally (V1: basic chatbot)"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+# Runtime dependencies are added in the step that first needs them.
+dependencies = [
+    "anthropic>=2.7.0",
+    "fastapi>=0.162.2",
+    "pydantic>=2.14.3",
+    "pydantic-settings>=2.16.2",
+    "pyyaml>=6.0.3",
+    "tzdata>=2026.6",
+    "uvicorn>=0.54.0",
+]
+
+[dependency-groups]
+dev = [
+    "httpx2>=2.0",
+    "pytest>=8",
+    "ruff>=0.6",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Lets tests import the `app` package from the repo root without installing it.
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# E/F: errors, I: import sorting, UP: modern syntax, B: common bug patterns
+select = ["E", "F", "I", "UP", "B"]

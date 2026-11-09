@@ -1,0 +1,64 @@
+# Big Smile Clinic — FICTIONAL data for development.
+# This file is the only source of clinic facts the assistant may use.
+# Anything not listed here (e.g. prices) the bot must say it doesn't know.
+# Quote all times ("08:00"): unquoted 18:00 is parsed by YAML as the number 1080.
+
+name: "Big Smile Clinic"
+address: "Rua das Flores, 123 - Bessa - JP"
+phone: "+55 11 5555-0100"
+timezone: "America/Sao_Paulo"
+
+opening_hours:          # days not listed are closed
+  monday:    { open: "08:00", close: "18:00" }
+  tuesday:   { open: "08:00", close: "18:00" }
+  wednesday: { open: "08:00", close: "18:00" }
+  thursday:  { open: "08:00", close: "18:00" }
+  friday:    { open: "08:00", close: "18:00" }
+  saturday:  { open: "08:00", close: "12:00" }
+
+dentists:
+  - id: ana
+    name: "Dr. Ana Souza"
+    specialty: "General dentistry"
+  - id: bruno
+    name: "Dr. Bruno Lima"
+    specialty: "Endodontics (root canal treatment)"
+  - id: carla
+    name: "Dr. Carla Mendes"
+    specialty: "Orthodontics"
+
+services:
+  - id: consultation
+    name: "Initial consultation"
+    description: "First visit: full check-up and treatment plan."
+    duration_minutes: 30
+    dentist_ids: [ana, bruno]
+  - id: cleaning
+    name: "Cleaning"
+    description: "Professional cleaning and plaque removal."
+    duration_minutes: 45
+    dentist_ids: [ana]
+  - id: urgent_care
+    name: "Urgent appointment"
+    description: "Same-day or next-day visit for tooth pain or dental injury."
+    duration_minutes: 30
+    dentist_ids: [ana, bruno]
+  - id: root_canal_evaluation
+    name: "Root canal evaluation"
+    description: "Assessment for possible root canal treatment."
+    duration_minutes: 45
+    dentist_ids: [bruno]
+  - id: orthodontic_evaluation
+    name: "Orthodontic evaluation"
+    description: "Assessment for braces or aligners."
+    duration_minutes: 30
+    dentist_ids: [carla]
+
+policies:
+  cancellation: "Please cancel or reschedule at least 24 hours in advance."
+  late_arrival: "Arriving more than 15 minutes late may require rescheduling."
+  first_visit: "Please bring an ID document and any previous dental X-rays."
+
+emergency:
+  clinic_phone: "+55 11 5555-0199"
+  public_emergency_number: "192"   # SAMU, Brazil's public medical emergency service
