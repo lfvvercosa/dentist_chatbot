@@ -39,5 +39,6 @@ uv run python -m scripts.try_claude
 uv run uvicorn app.main:app --reload
 ```
 
-Then open http://localhost:8000/docs to try the endpoints in the browser.
-Currently `/chat` echoes the message back (the LLM is added in a later step).
+Needs `ANTHROPIC_API_KEY` in `.env`. Then open http://localhost:8000/docs to try the endpoints
+in the browser. `/chat` answers with Claude. Conversation history is kept in memory per
+`conversation_id` and is lost when the server restarts.

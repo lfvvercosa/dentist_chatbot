@@ -2,19 +2,18 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 
 from app.schemas.chat import ChatRequest, ChatResponse
 from app.services.conversation import ConversationService
 
 router = APIRouter()
 
-_conversation_service = ConversationService()
 
-
-def get_conversation_service() -> ConversationService:
-    """Dependency provider. Tests can swap the service via app.dependency_overrides."""
-    return _conversation_service
+def get_conversation_service(request: Request) -> ConversationService:
+    """Returns the service built at startup (app/main.py). Tests swap it via
+    app.dependency_overrides."""
+    return request.app.state.conversation_service
 
 
 @router.get("/health")
