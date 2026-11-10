@@ -30,6 +30,8 @@ pythonpath = ["."]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+# Personal study notes: visible to git and VS Code (see temp/ setup), but not linted.
+extend-exclude = ["temp"]
 
 [tool.ruff.lint]
 # E/F: errors, I: import sorting, UP: modern syntax, B: common bug patterns
