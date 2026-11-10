@@ -4,10 +4,10 @@ from collections.abc import Sequence
 
 import pytest
 
-from app.llm.client import ChatMessage, LLMError, LLMResult
+from app.llm.client import ChatMessage, LLMClient, LLMError, LLMResult
 
 
-class FakeLLM:
+class FakeLLM(LLMClient):
     """Stands in for Claude: records every call and returns "reply 1", "reply 2", ...
     Set `error` to make the next calls fail."""
 

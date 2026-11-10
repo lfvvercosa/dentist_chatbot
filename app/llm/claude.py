@@ -5,14 +5,14 @@ from collections.abc import Sequence
 import anthropic
 
 from app.core.settings import Settings
-from app.llm.client import ChatMessage, LLMError, LLMResult
+from app.llm.client import ChatMessage, LLMClient, LLMError, LLMResult
 
 # If Claude's safety classifiers decline a request, the API retries it on a
 # fallback model chosen by Anthropic instead of returning a refusal.
 _FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
 
-class ClaudeClient:
+class ClaudeClient(LLMClient):
     def __init__(self, sdk_client: anthropic.Anthropic, model: str, effort: str, max_tokens: int):
         self._sdk = sdk_client
         self._model = model
