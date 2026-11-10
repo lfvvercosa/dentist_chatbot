@@ -2,8 +2,9 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
+from app.llm.client import LLMError
 from app.schemas.chat import ChatRequest, ChatResponse
 from app.services.conversation import ConversationService
 
@@ -26,5 +27,12 @@ def chat(
     request: ChatRequest,
     service: Annotated[ConversationService, Depends(get_conversation_service)],
 ) -> ChatResponse:
-    reply = service.handle_message(request.conversation_id, request.message)
+    try:
+        reply = service.handle_message(request.conversation_id, request.message)
+    except LLMError as exc:
+        # Our problem, not the client's: 503 says "try again later". The details are
+        # already logged by the service and are not sent to the client.
+        raise HTTPException(
+            status_code=503, detail="The assistant is temporarily unavailable. Please try again."
+        ) from exc
     return ChatResponse(conversation_id=request.conversation_id, reply=reply)

@@ -18,15 +18,22 @@ A small, well-structured LLM chatbot: Streamlit chat → FastAPI → Conversatio
 LangGraph, booking or calendar access, databases, WhatsApp, Redis/Celery, Docker, deployment.
 
 ## Steps
-0. Project setup (git, pyproject, tooling, this document)
-1. Clinic config (YAML) + Pydantic model + validation tests
-2. API contract: `ChatRequest`/`ChatResponse`, FastAPI `/health` and `/chat` with an echo reply, API tests
-3. `LLMClient` (Claude + fake), system prompt file, `ConversationService` with in-memory history, request logging
-4. Streamlit thin client with "new conversation"
-5. Manual acceptance run + README run instructions (simple version complete)
-6. Behavior evals (on demand, live model)
-7. Deterministic red-flag safety check
-8. `docs/v1-decisions.md`, final README, tag `v1.0`
+Status: ✅ done · 🔄 in progress · ⬜ not started
+
+0. ✅ Project setup (git, pyproject, tooling, this document)
+1. ✅ Clinic config (YAML) + Pydantic model + validation tests
+2. ✅ API contract: `ChatRequest`/`ChatResponse`, FastAPI `/health` and `/chat` with an echo reply, API tests
+3. ✅ LLM + conversation
+   - 3a. ✅ Settings, `LLMClient` interface, Claude implementation, tests, `scripts/try_claude.py`
+   - 3b. ✅ Conversation
+     - 3b.1 ✅ System prompt built from `clinic.yaml` (`app/prompts/`)
+     - 3b.2 ✅ `ConversationService` with in-memory history, Claude wired into `/chat` at startup (fake LLM in tests)
+     - 3b.3 ✅ LLM failures → HTTP 503, one log line per message (ids, latency, tokens; no patient text)
+4. ⬜ Streamlit thin client with "new conversation"
+5. ⬜ Manual acceptance run + README run instructions (simple version complete)
+6. ⬜ Behavior evals (on demand, live model)
+7. ⬜ Deterministic red-flag safety check
+8. ⬜ `docs/v1-decisions.md`, final README, tag `v1.0`
 
 ## Acceptance checklist
 - [ ] FastAPI and Streamlit start locally with documented commands

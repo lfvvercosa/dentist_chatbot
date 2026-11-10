@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 
 from app.llm.client import ChatMessage, LLMError
@@ -51,3 +53,33 @@ def test_failed_call_leaves_history_unchanged(service, fake_llm):
         ChatMessage("assistant", "reply 1"),
         ChatMessage("user", "try again"),  # the failed message was not saved
     ]
+
+
+PATIENT_TEXT = "Meu nome é Maria Silva e meu dente dói"
+
+
+def test_logs_one_line_without_patient_text(service, caplog):
+    caplog.set_level(logging.INFO, logger="app.services.conversation")
+
+    service.handle_message("conv-1", PATIENT_TEXT)
+
+    [record] = caplog.records  # exactly one line per message
+    line = record.getMessage()
+    assert record.levelno == logging.INFO
+    assert "conversation_id=conv-1 outcome=ok" in line
+    assert "model=fake-model input_tokens=10 output_tokens=5" in line
+    assert "Maria" not in line and "reply 1" not in line
+
+
+def test_logs_failures_without_patient_text(service, fake_llm, caplog):
+    caplog.set_level(logging.INFO, logger="app.services.conversation")
+    fake_llm.error = LLMError("Could not reach Claude API: timeout")
+
+    with pytest.raises(LLMError):
+        service.handle_message("conv-1", PATIENT_TEXT)
+
+    [record] = caplog.records
+    line = record.getMessage()
+    assert record.levelno == logging.WARNING
+    assert "outcome=error" in line and "timeout" in line
+    assert "Maria" not in line

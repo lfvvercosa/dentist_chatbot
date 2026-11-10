@@ -2,7 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api.routes import get_conversation_service
-from app.llm.client import ChatMessage
+from app.llm.client import ChatMessage, LLMError
 from app.main import app
 from app.services.conversation import ConversationService
 
@@ -32,6 +32,17 @@ def test_chat_returns_llm_reply(client, fake_llm):
     assert response.json() == {"conversation_id": "abc-123", "reply": "reply 1"}
     _, messages = fake_llm.calls[0]
     assert messages == [ChatMessage("user", "hello")]  # stripped before reaching the LLM
+
+
+def test_chat_returns_503_when_llm_fails(client, fake_llm):
+    fake_llm.error = LLMError("Could not reach Claude API: timeout")
+
+    response = client.post("/chat", json={"conversation_id": "abc-123", "message": "hello"})
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": "The assistant is temporarily unavailable. Please try again."
+    }  # internal error details are not leaked to the client
 
 
 @pytest.mark.parametrize(

@@ -1,5 +1,6 @@
 """FastAPI application. Run with: uv run uvicorn app.main:app --reload"""
 
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -10,6 +11,9 @@ from app.core.settings import Settings
 from app.llm.claude import build_claude_client
 from app.prompts.system_prompt import build_system_prompt
 from app.services.conversation import ConversationService
+
+# uvicorn configures only its own loggers; without this, our INFO lines are dropped.
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 
 @asynccontextmanager
