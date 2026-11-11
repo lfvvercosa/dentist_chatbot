@@ -32,18 +32,18 @@ Status: ✅ done · 🔄 in progress · ⬜ not started
 4. ✅ Streamlit thin client with "new conversation"
    - 4.1 ✅ `frontend/streamlit_app.py`: chat page calling `POST /chat`, "New conversation" button, error messages (verified live)
    - 4.2 ✅ Offline UI tests with Streamlit `AppTest` (HTTP call faked)
-5. ⬜ Manual acceptance run + README run instructions (simple version complete)
+5. ✅ Manual acceptance run + README run instructions (simple version complete)
 6. ⬜ Behavior evals (on demand, live model)
 7. ⬜ Deterministic red-flag safety check
 8. ⬜ `docs/v1-decisions.md`, final README, tag `v1.0`
 
 ## Acceptance checklist
-- [ ] FastAPI and Streamlit start locally with documented commands
-- [ ] `/docs` shows the chat endpoint and it works when called directly
-- [ ] Multi-turn chat keeps context within a conversation
-- [ ] "New conversation" starts fresh; two conversations don't mix
-- [ ] Clinic questions are answered from config; unknown facts (e.g. prices) get "I don't have that information"
-- [ ] Booking requests: bot collects service/date/time and says it cannot book yet
-- [ ] Red-flag symptoms get directed to urgent professional care, with no diagnosis
-- [ ] Replies in Portuguese or English, matching the patient
-- [ ] Unit tests pass without network or API key
+- [x] FastAPI and Streamlit start locally with documented commands
+- [x] `/docs` shows the chat endpoint and it works when called directly
+- [x] Multi-turn chat keeps context within a conversation
+- [x] "New conversation" starts fresh; two conversations don't mix
+- [x] Clinic questions are answered from config; unknown facts (e.g. prices) get "I don't have that information"
+- [x] Booking requests: bot collects service/date/time and says it cannot book yet
+- [x] Red-flag symptoms get directed to urgent professional care, with no diagnosis
+- [x] Replies in Portuguese or English, matching the patient
+- [x] Unit tests pass without network or API key
