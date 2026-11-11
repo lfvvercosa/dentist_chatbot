@@ -84,3 +84,36 @@ To try a single Claude call without the API (needs the key; costs a fraction of 
 ```bash
 uv run python -m scripts.try_claude
 ```
+
+## V1 behavior evaluations
+
+Run the fictional patient scenarios in [evals/v1-cases.yaml](evals/v1-cases.yaml) against the
+live model selected by `.env`:
+
+```bash
+uv run python -m scripts.eval_v1
+```
+
+This makes 13 paid API calls across 10 scenarios when all calls succeed. It runs the real
+`ConversationService`, system prompt, and Claude adapter directly; no API or chat server is
+needed. It is separate from the offline test suite.
+
+Each run writes a new JSON report under `evals/results/`, including the fictional messages,
+replies, criteria, rendered system prompt, model settings, returned models, tokens, and latency.
+Use `--output path/to/new-report.json` to choose a path; existing reports are never overwritten.
+Completed cases are saved as the run progresses.
+
+**A completed API call is not a passing evaluation.** Read every conversation against both
+the shared criteria and the case-specific criteria. Record pass/fail with a reason in a
+companion review document, referencing the report and case id. API failures are execution
+errors; dependent turns are skipped, and the command exits with a nonzero status. The JSON
+review fields stay `pending` until someone explicitly grades them.
+
+The [first baseline review](docs/v1-evaluation.md) records 9 passes and 1 brevity failure,
+with no execution errors. Its report includes the reviewed verdicts and reasons. This is
+one run of Sonnet at medium effort; other models and effort levels have not been compared.
+The same review document also records a subsequent concision prompt change and rerun:
+the booking case passed, while an unnecessary booking follow-up in the medication case
+remains a brevity finding. Both runs and their original criteria are saved separately.
+The user's [15:30 run](evals/results/20261111T183034467064Z.json) has also been reviewed:
+9 passes and the same medication-reply brevity/focus finding, using the updated prompt.

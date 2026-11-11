@@ -33,7 +33,7 @@ Status: ✅ done · 🔄 in progress · ⬜ not started
    - 4.1 ✅ `frontend/streamlit_app.py`: chat page calling `POST /chat`, "New conversation" button, error messages (verified live)
    - 4.2 ✅ Offline UI tests with Streamlit `AppTest` (HTTP call faked)
 5. ✅ Manual acceptance run + README run instructions (simple version complete)
-6. ⬜ Behavior evals (on demand, live model)
+6. ✅ Behavior evals (on demand, live model): 10 scenarios, 13 calls, reviewed Sonnet/medium baseline — [results and recorded style findings](v1-evaluation.md). Repeated runs and model comparisons remain follow-up experiments.
 7. ⬜ Deterministic red-flag safety check
 8. ⬜ `docs/v1-decisions.md`, final README, tag `v1.0`
 
