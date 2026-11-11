@@ -11,6 +11,7 @@ A small, well-structured LLM chatbot: Streamlit chat → FastAPI → Conversatio
 | Conversation history | Stored on the server, keyed by `conversation_id`; clients send only the id + new message. In-memory in V1 (lost on restart) | Client sends full history each request (stateless, but WhatsApp can't do this) |
 | Clinic facts | YAML file validated by Pydantic, rendered into the system prompt | RAG (not needed for ~1 page of facts) |
 | System prompt | Lives in its own file, versioned with the code | Inline string |
+| Escalation | Claude recognizes context and returns a validated level/language; backend selects configured guidance in the same call flow | Keyword matching (rejected by the developer because context and negation matter) |
 | Logging | One structured log line per chat request: request id, latency, token usage. No patient message text | No logging until V3 |
 | Tooling | Python 3.12, uv, pytest, ruff | pip/poetry, mypy (maybe later) |
 
@@ -33,8 +34,8 @@ Status: ✅ done · 🔄 in progress · ⬜ not started
    - 4.1 ✅ `frontend/streamlit_app.py`: chat page calling `POST /chat`, "New conversation" button, error messages (verified live)
    - 4.2 ✅ Offline UI tests with Streamlit `AppTest` (HTTP call faked)
 5. ✅ Manual acceptance run + README run instructions (simple version complete)
-6. ✅ Behavior evals (on demand, live model): 10 scenarios, 13 calls, reviewed Sonnet/medium baseline — [results and recorded style findings](v1-evaluation.md). Repeated runs and model comparisons remain follow-up experiments.
-7. ⬜ Deterministic red-flag safety check
+6. ✅ Behavior evals (on demand, live model): 10 scenarios, reviewed Sonnet/medium baseline and concision rerun — [results](v1-evaluation.md). Booking brevity improved; medication reply focus remains open. Reliability repeats and model comparisons remain follow-up experiments.
+7. ✅ LLM-based escalation (revised at the developer's request): one structured Claude decision per turn, validated by Pydantic; backend selects Portuguese/English guidance from config. No keyword matching. [Design and verification](v1-escalation.md)
 8. ⬜ `docs/v1-decisions.md`, final README, tag `v1.0`
 
 ## Acceptance checklist
@@ -45,5 +46,6 @@ Status: ✅ done · 🔄 in progress · ⬜ not started
 - [x] Clinic questions are answered from config; unknown facts (e.g. prices) get "I don't have that information"
 - [x] Booking requests: bot collects service/date/time and says it cannot book yet
 - [x] Red-flag symptoms get directed to urgent professional care, with no diagnosis
+- [x] Explicit LLM escalation decisions select configured guidance; negation, resolved history, and multi-turn context checked in live examples
 - [x] Replies in Portuguese or English, matching the patient
 - [x] Unit tests pass without network or API key

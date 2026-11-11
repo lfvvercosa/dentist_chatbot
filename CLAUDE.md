@@ -35,6 +35,8 @@ Streamlit → FastAPI route → ConversationService → LLMClient → Claude
 | `app/schemas/` | API contract (`ChatRequest`, `ChatResponse`) |
 | `app/api/routes.py` | Thin routes; service injected with `Depends()` |
 | `app/services/` | `ConversationService`: channel-independent entry point for a message |
+| `app/services/escalation.py` | Selects configured guidance from a validated LLM decision; never matches symptom keywords |
+| `config/escalation.yaml` | Portuguese/English urgent and emergency templates, rendered with contacts from clinic config |
 | `app/llm/client.py` | Provider-neutral `LLMClient` abstract base class, `ChatMessage`, `LLMResult`, `LLMError` |
 | `app/llm/claude.py` | The only module that imports the `anthropic` SDK |
 | `tests/` | Unit tests; must never call the network or need an API key |
@@ -49,6 +51,7 @@ Streamlit → FastAPI route → ConversationService → LLMClient → Claude
 - **No LangChain in V1.** Use the official `anthropic` SDK behind `LLMClient`.
 - **Claude settings** are configurable via `.env`: `LLM_MODEL` (default `claude-opus-5-5`), `LLM_EFFORT` (default `low`), timeout 60s, refusal fallback (`fallbacks="default"`) enabled. Check `stop_reason` before reading content; translate SDK errors to `LLMError`.
 - The bot replies in the patient's language (Portuguese or English). It is an administrative assistant: no diagnosis; urgent symptoms are directed to professional care.
+- Escalation recognition uses the LLM's contextual decision in the same call as the reply. Validate the structured level/language/reply at the adapter boundary; backend code selects the template. The developer rejected a keyword detector. Recognition is not available independently of the LLM.
 - Patient data is sensitive (Brazil's LGPD): never log message text or personal data.
 
 ## Commands

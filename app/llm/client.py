@@ -5,6 +5,9 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
 
+EscalationLevel = Literal["none", "urgent", "emergency"]
+ResponseLanguage = Literal["pt", "en"]
+
 
 @dataclass(frozen=True)
 class ChatMessage:
@@ -18,6 +21,8 @@ class LLMResult:
     model: str
     input_tokens: int
     output_tokens: int
+    escalation: EscalationLevel = "none"
+    language: ResponseLanguage = "pt"
 
 
 class LLMError(Exception):

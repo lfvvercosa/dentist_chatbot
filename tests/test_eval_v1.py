@@ -8,9 +8,11 @@ from app.services.conversation import ConversationService
 from scripts.eval_v1 import EvalCase, EvalSuite, RecordingLLM, run_case
 
 
-def test_eval_preserves_history_but_isolates_cases_and_leaves_grading_pending(fake_llm):
+def test_eval_preserves_history_but_isolates_cases_and_leaves_grading_pending(
+    fake_llm, escalation_service
+):
     llm = RecordingLLM(fake_llm)
-    service = ConversationService(llm, "real prompt placeholder")
+    service = ConversationService(llm, "real prompt placeholder", escalation_service)
     case = EvalCase(id="memory", messages=["I am Alex", "My name?"], criteria=["Recall Alex"])
 
     result = run_case(case, service, llm)
@@ -33,9 +35,11 @@ def test_eval_preserves_history_but_isolates_cases_and_leaves_grading_pending(fa
     }
 
 
-def test_execution_error_skips_dependent_turns_without_becoming_behavior_failure(fake_llm):
+def test_execution_error_skips_dependent_turns_without_becoming_behavior_failure(
+    fake_llm, escalation_service
+):
     llm = RecordingLLM(fake_llm)
-    service = ConversationService(llm, "prompt")
+    service = ConversationService(llm, "prompt", escalation_service)
     case = EvalCase(id="booking", messages=["Book", "Confirm"], criteria=["Cannot book"])
     fake_llm.error = LLMError("API unavailable")
 
@@ -55,3 +59,33 @@ def test_duplicate_case_ids_are_rejected_before_a_run():
     case = EvalCase(id="same", messages=["Hello"], criteria=["Respond"])
     with pytest.raises(ValidationError, match="ids must be unique"):
         EvalSuite(shared_criteria=["No invented facts"], cases=[case, case])
+
+
+def test_escalation_check_compares_the_model_decision_with_expected_level(
+    fake_llm, escalation_service
+):
+    llm = RecordingLLM(fake_llm)
+    service = ConversationService(llm, "prompt", escalation_service)
+    case = EvalCase(
+        id="urgent", messages=["Help"], criteria=["Escalate"], expected_escalation=["urgent"]
+    )
+
+    mismatch = run_case(case, service, llm)
+    assert mismatch["turns"][0]["escalation_check"] == {"expected": "urgent", "passed": False}
+
+    fake_llm.escalation = "urgent"
+    match = run_case(case, service, llm)
+    assert match["turns"][0]["escalation_check"]["passed"] is True
+    assert match["turns"][0]["decision"] == {"escalation": "urgent", "language": "pt"}
+    assert match["turns"][0]["reply"] == escalation_service.reply("urgent", "pt")
+    assert match["review"]["verdict"] == "pending"  # Classification check is not full review.
+
+
+def test_expected_escalation_requires_one_level_per_turn():
+    with pytest.raises(ValidationError, match="one entry per message"):
+        EvalCase(
+            id="incomplete",
+            messages=["Hi", "Help"],
+            criteria=["Escalate"],
+            expected_escalation=["none"],
+        )

@@ -70,8 +70,9 @@ Keep the current configuration for now. This single run does not show whether So
 Opus, or low versus medium effort, is better. Model comparisons and repeated runs remain
 follow-up experiments, using the same cases and a clarified brevity rubric.
 
-Step 7 is still pending. Passing these particular symptom examples does not establish
-reliable behavior for all wording or future runs.
+At the time of these baseline runs, step 7 was still pending. It was subsequently revised
+to [LLM-based escalation](v1-escalation.md) at the developer's request. Passing these
+particular symptom examples does not establish reliable behavior for all wording or future runs.
 
 ## Follow-up: more concise prompt
 

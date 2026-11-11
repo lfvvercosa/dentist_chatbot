@@ -27,7 +27,7 @@ Avoid overengineering early releases. Each version should demonstrate a meaningf
 
 **Final V1 steps (added on top, only after the simple version works end to end):**
 - **Behavior evals:** a small set of scenarios (grounded FAQ, unknown fact → "I don't know", red-flag symptom → escalation, booking request → "can't book yet"), run on demand against the live model. Separate from unit tests.
-- **Deterministic red-flag check:** a code-level safety net for clear urgent symptoms that guarantees the escalation message, on top of the prompt-based behavior. Unit-testable.
+- **LLM-based escalation (revised in V1 at the developer's request):** Claude recognizes urgency from conversation context and returns a validated structured decision. Deterministic backend code selects configured guidance. Recognition still depends on the LLM; there is no keyword-based or LLM-independent detector.
 
 **Done when:** The developer starts Streamlit and FastAPI locally, chats across multiple turns, observes relevant context retention, sees appropriate safety behavior, and can call the API directly using `/docs`.
 

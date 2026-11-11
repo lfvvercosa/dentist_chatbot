@@ -9,7 +9,8 @@ Planning documents live in [documents/](documents/). Per-version scope and decis
 A browser chat (Streamlit) that talks to a FastAPI backend, which asks Claude for each reply.
 The assistant answers clinic questions only from [config/clinic.yaml](config/clinic.yaml),
 collects appointment requests (it cannot book yet), and points urgent symptoms to professional
-care. It replies in Portuguese or English, matching the patient.
+care. Claude returns an explicit escalation decision; the backend selects the appropriate
+configured guidance. It replies in Portuguese or English, matching the patient.
 
 ```
 Streamlit  →  FastAPI /chat  →  ConversationService  →  Claude
@@ -117,3 +118,30 @@ the booking case passed, while an unnecessary booking follow-up in the medicatio
 remains a brevity finding. Both runs and their original criteria are saved separately.
 The user's [15:30 run](evals/results/20261111T183034467064Z.json) has also been reviewed:
 9 passes and the same medication-reply brevity/focus finding, using the updated prompt.
+
+## LLM-based escalation
+
+Each message makes one Claude call returning `escalation` (`none`, `urgent`, or `emergency`),
+`language` (`pt` or `en`), and a normal `reply`. Pydantic validates this internal response.
+The public `/chat` contract is still just `conversation_id` and the final reply.
+
+For `none`, the patient sees the generated reply. For `urgent` or `emergency`, the backend
+uses [config/escalation.yaml](config/escalation.yaml), with emergency contacts from
+`clinic.yaml`. This guidance is also the reply saved in conversation history. It tells the
+patient where to seek help; nobody is automatically called or notified.
+
+Recognition is performed by Claude using the current message and history; no keyword
+matching or second classification call is used. Invalid decisions, refusal, or API failure
+produce the existing HTTP 503 response. The feature depends on Claude being available and
+classifying correctly. See [the design and results](docs/v1-escalation.md).
+
+Run the separate contextual escalation scenarios (14 paid calls across 12 scenarios):
+
+```bash
+uv run python -m scripts.eval_v1 --cases evals/v1-escalation-cases.yaml
+```
+
+The report includes each structured `decision` and an `escalation_check` comparing it with
+the expected level declared before the run. The command exits nonzero for a level mismatch
+or execution error. These exact checks are separate from reviewing the full reply; its
+review stays pending until recorded.

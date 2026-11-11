@@ -20,10 +20,12 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.core.clinic_config import load_clinic_config
 from app.core.settings import Settings
 from app.llm.claude import build_claude_client
-from app.llm.client import ChatMessage, LLMClient, LLMError, LLMResult
+from app.llm.client import ChatMessage, EscalationLevel, LLMClient, LLMError, LLMResult
 from app.prompts.system_prompt import build_system_prompt
+from app.schemas.assistant import AssistantDecision
 from app.schemas.chat import ConversationId, MessageText
 from app.services.conversation import ConversationService
+from app.services.escalation import TEMPLATES_PATH, EscalationService
 
 ROOT = Path(__file__).resolve().parents[1]
 CASES_PATH = ROOT / "evals" / "v1-cases.yaml"
@@ -35,6 +37,15 @@ class EvalCase(BaseModel):
     id: ConversationId
     messages: list[MessageText] = Field(min_length=1)
     criteria: list[MessageText] = Field(min_length=1)
+    expected_escalation: list[EscalationLevel] | None = None
+
+    @model_validator(mode="after")
+    def expected_level_for_each_turn(self) -> "EvalCase":
+        if self.expected_escalation is not None and len(self.expected_escalation) != len(
+            self.messages
+        ):
+            raise ValueError("expected_escalation must have one entry per message")
+        return self
 
 
 class EvalSuite(BaseModel):
@@ -69,7 +80,7 @@ def run_case(case: EvalCase, service: ConversationService, llm: RecordingLLM) ->
     conversation_id = uuid.uuid4().hex
     turns = []
     execution_status = "completed"
-    for message in case.messages:
+    for index, message in enumerate(case.messages):
         start = time.perf_counter()
         turn = {"message": message}
         try:
@@ -80,9 +91,20 @@ def run_case(case: EvalCase, service: ConversationService, llm: RecordingLLM) ->
         else:
             if llm.last_result is not None:
                 # Returned model may differ from the requested model due to fallback.
+                result = asdict(llm.last_result)
                 turn["usage"] = {
-                    key: value for key, value in asdict(llm.last_result).items() if key != "text"
+                    key: result[key] for key in ("model", "input_tokens", "output_tokens")
                 }
+                turn["decision"] = {
+                    "escalation": result["escalation"],
+                    "language": result["language"],
+                }
+                if case.expected_escalation is not None:
+                    expected = case.expected_escalation[index]
+                    turn["escalation_check"] = {
+                        "expected": expected,
+                        "passed": result["escalation"] == expected,
+                    }
         turn["latency_ms"] = round((time.perf_counter() - start) * 1000)
         turns.append(turn)
         if execution_status == "error":
@@ -117,7 +139,7 @@ def main() -> int:
     config = load_clinic_config()
     system_prompt = build_system_prompt(config)
     llm = RecordingLLM(build_claude_client(settings))
-    service = ConversationService(llm, system_prompt)
+    service = ConversationService(llm, system_prompt, EscalationService(config.emergency))
     report = {
         "started_at": started_at.isoformat(),
         "git_revision": git_output("rev-parse", "HEAD"),
@@ -130,6 +152,8 @@ def main() -> int:
             "max_retries": settings.llm_max_retries,
         },
         "system_prompt": system_prompt,
+        "output_schema": AssistantDecision.model_json_schema(),
+        "escalation_templates": yaml.safe_load(TEMPLATES_PATH.read_text(encoding="utf-8")),
         "suite": suite.model_dump(),
         "cases": [],
     }
@@ -156,8 +180,19 @@ def main() -> int:
         report["finished_at"] = datetime.now(UTC).isoformat()
         save_report()
     errors = sum(case["execution_status"] == "error" for case in report["cases"])
+    checks = [
+        turn["escalation_check"]["passed"]
+        for case in report["cases"]
+        for turn in case["turns"]
+        if "escalation_check" in turn
+    ]
+    mismatches = len(checks) - sum(checks)
     print(f"Collected {len(report['cases'])} cases; {errors} execution errors. Review required.")
-    return 1 if errors else 0
+    if checks:
+        print(f"Escalation checks matched: {sum(checks)}/{len(checks)}; mismatches: {mismatches}.")
+    else:
+        print("No expected escalation levels declared; no automatic escalation checks run.")
+    return 1 if errors or mismatches else 0
 
 
 if __name__ == "__main__":

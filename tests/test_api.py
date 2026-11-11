@@ -8,9 +8,9 @@ from app.services.conversation import ConversationService
 
 
 @pytest.fixture
-def client(fake_llm):
+def client(fake_llm, escalation_service):
     # One service for the whole test, so history survives across requests.
-    service = ConversationService(fake_llm, system_prompt="test system prompt")
+    service = ConversationService(fake_llm, "test system prompt", escalation_service)
     app.dependency_overrides[get_conversation_service] = lambda: service
     # Not used as `with TestClient(...)`, so the startup code (which builds the
     # real Claude client) never runs.
@@ -43,6 +43,21 @@ def test_chat_returns_503_when_llm_fails(client, fake_llm):
     assert response.json() == {
         "detail": "The assistant is temporarily unavailable. Please try again."
     }  # internal error details are not leaked to the client
+
+
+def test_chat_returns_escalation_text_in_the_same_public_contract(
+    client, fake_llm, escalation_service
+):
+    fake_llm.escalation = "emergency"
+    fake_llm.language = "en"
+
+    response = client.post("/chat", json={"conversation_id": "abc-123", "message": "Help"})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "conversation_id": "abc-123",
+        "reply": escalation_service.reply("emergency", "en"),
+    }
 
 
 @pytest.mark.parametrize(

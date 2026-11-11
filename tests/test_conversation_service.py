@@ -7,8 +7,8 @@ from app.services.conversation import ConversationService
 
 
 @pytest.fixture
-def service(fake_llm) -> ConversationService:
-    return ConversationService(fake_llm, system_prompt="test system prompt")
+def service(fake_llm, escalation_service) -> ConversationService:
+    return ConversationService(fake_llm, "test system prompt", escalation_service)
 
 
 def test_first_message_is_sent_with_the_system_prompt(service, fake_llm):
@@ -83,3 +83,31 @@ def test_logs_failures_without_patient_text(service, fake_llm, caplog):
     assert record.levelno == logging.WARNING
     assert "outcome=error" in line and "timeout" in line
     assert "Maria" not in line
+
+
+@pytest.mark.parametrize("level", ["urgent", "emergency"])
+@pytest.mark.parametrize("language", ["pt", "en"])
+def test_llm_decision_selects_guidance_and_saves_the_actual_reply(
+    service, fake_llm, escalation_service, level, language, caplog
+):
+    caplog.set_level(logging.INFO, logger="app.services.conversation")
+    fake_llm.escalation = level
+    fake_llm.language = language
+
+    reply = service.handle_message("conv-1", PATIENT_TEXT)
+
+    assert len(fake_llm.calls) == 1  # The LLM classifies; no second classification call.
+    assert reply == escalation_service.reply(level, language)
+    assert "reply 1" not in reply  # Escalation replaces any free-form model reply.
+    assert f"escalation={level}" in caplog.records[0].getMessage()
+    assert PATIENT_TEXT not in caplog.text
+
+    fake_llm.escalation = "none"
+    service.handle_message("conv-1", "Follow-up")
+    assert fake_llm.calls[1][1][1] == ChatMessage("assistant", reply)
+
+
+def test_no_keyword_matching_overrides_the_llm_decision(service, fake_llm):
+    reply = service.handle_message("conv-1", "Não tenho dificuldade para respirar.")
+    assert reply == "reply 1"
+    assert len(fake_llm.calls) == 1

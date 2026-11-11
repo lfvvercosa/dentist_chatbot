@@ -1,0 +1,24 @@
+# Messages selected by the backend only AFTER the LLM requests escalation.
+# Both contacts are rendered from clinic.yaml; these templates contain no patient text.
+urgent:
+  pt: >-
+    Procure atendimento profissional com urgência. Ligue para o telefone de emergência
+    da clínica: {clinic_phone}. Não posso diagnosticar nem recomendar medicamentos.
+    Se houver dificuldade para respirar ou engolir ou risco
+    à vida, ligue para {public_emergency_number} ou procure atendimento de emergência
+    imediatamente, sem esperar um retorno da clínica.
+  en: >-
+    Please seek urgent professional care. Call the clinic's emergency phone:
+    {clinic_phone}. I cannot diagnose or recommend medication.
+    If you have difficulty breathing or swallowing or a life-threatening
+    emergency, call {public_emergency_number} or seek emergency care immediately,
+    without waiting for the clinic to respond.
+emergency:
+  pt: >-
+    Isso pode ser uma emergência. Ligue agora para {public_emergency_number} ou procure
+    atendimento de emergência imediatamente. O telefone de emergência da clínica é
+    {clinic_phone}, mas não espere um retorno para buscar atendimento.
+  en: >-
+    This could be an emergency. Call {public_emergency_number} now or seek emergency
+    care immediately. The clinic's emergency phone is {clinic_phone}, but do not wait
+    for a response before getting emergency care.
