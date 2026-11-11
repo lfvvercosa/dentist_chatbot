@@ -42,3 +42,15 @@ uv run uvicorn app.main:app --reload
 Needs `ANTHROPIC_API_KEY` in `.env`. Then open http://localhost:8000/docs to try the endpoints
 in the browser. `/chat` answers with Claude. Conversation history is kept in memory per
 `conversation_id` and is lost when the server restarts.
+
+## Run the chat UI
+
+With the API running (previous section), in a second terminal:
+
+```bash
+uv run streamlit run frontend/streamlit_app.py
+```
+
+Then open http://localhost:8501. "New conversation" in the sidebar starts a fresh chat (a new
+`conversation_id`). The page only displays messages and calls `POST /chat`; the history lives on
+the server. If the API runs elsewhere, set `CHAT_API_URL` (default `http://localhost:8000`).

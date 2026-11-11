@@ -29,7 +29,9 @@ Status: ✅ done · 🔄 in progress · ⬜ not started
      - 3b.1 ✅ System prompt built from `clinic.yaml` (`app/prompts/`)
      - 3b.2 ✅ `ConversationService` with in-memory history, Claude wired into `/chat` at startup (fake LLM in tests)
      - 3b.3 ✅ LLM failures → HTTP 503, one log line per message (ids, latency, tokens; no patient text)
-4. ⬜ Streamlit thin client with "new conversation"
+4. 🔄 Streamlit thin client with "new conversation"
+   - 4.1 ✅ `frontend/streamlit_app.py`: chat page calling `POST /chat`, "New conversation" button, error messages (verified live)
+   - 4.2 ⬜ Offline UI tests with Streamlit `AppTest` (HTTP call faked)
 5. ⬜ Manual acceptance run + README run instructions (simple version complete)
 6. ⬜ Behavior evals (on demand, live model)
 7. ⬜ Deterministic red-flag safety check
