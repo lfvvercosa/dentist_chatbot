@@ -36,7 +36,7 @@ Status: ✅ done · 🔄 in progress · ⬜ not started
 5. ✅ Manual acceptance run + README run instructions (simple version complete)
 6. ✅ Behavior evals (on demand, live model): 10 scenarios, reviewed Sonnet/medium baseline and concision rerun — [results](v1-evaluation.md). Booking brevity improved; medication reply focus remains open. Reliability repeats and model comparisons remain follow-up experiments.
 7. ✅ LLM-based escalation (revised at the developer's request): one structured Claude decision per turn, validated by Pydantic; backend selects Portuguese/English guidance from config. No keyword matching. [Design and verification](v1-escalation.md)
-8. ⬜ `docs/v1-decisions.md`, final README, tag `v1.0`
+8. ✅ [Decisions and lessons](v1-decisions.md), final README, release versions `1.0.0`, clean-checkout verification, tag `v1.0`
 
 ## Acceptance checklist
 - [x] FastAPI and Streamlit start locally with documented commands
@@ -49,3 +49,6 @@ Status: ✅ done · 🔄 in progress · ⬜ not started
 - [x] Explicit LLM escalation decisions select configured guidance; negation, resolved history, and multi-turn context checked in live examples
 - [x] Replies in Portuguese or English, matching the patient
 - [x] Unit tests pass without network or API key
+- [x] Release dependencies install with `uv sync --frozen` from a clean checkout
+- [x] Final API/Streamlit path verified from the release checkout
+- [x] Decisions, known limitations, and V2 handoff documented

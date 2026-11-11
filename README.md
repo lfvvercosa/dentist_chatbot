@@ -4,7 +4,7 @@ A conversational assistant for a (fictional) dental clinic, built in four increm
 
 Planning documents live in [documents/](documents/). Per-version scope and decisions live in [docs/](docs/).
 
-## Current status: V1, simple version working
+## Current release: V1 (`v1.0`)
 
 A browser chat (Streamlit) that talks to a FastAPI backend, which asks Claude for each reply.
 The assistant answers clinic questions only from [config/clinic.yaml](config/clinic.yaml),
@@ -17,19 +17,40 @@ Streamlit  →  FastAPI /chat  →  ConversationService  →  Claude
 (display)     (HTTP only)       (history, logging)      (LLM)
 ```
 
-See [docs/v1-scope.md](docs/v1-scope.md) for scope, steps and the acceptance checklist.
+See [docs/v1-scope.md](docs/v1-scope.md) for the completed checklist and
+[docs/v1-decisions.md](docs/v1-decisions.md) for design choices, lessons, and limitations.
+
+V2 will evolve this codebase on `main`. To run the fixed V1 snapshot in a repository
+containing the release tag:
+
+```bash
+git switch --detach v1.0
+```
+
+Return to ongoing development with `git switch main`.
 
 ## Setup
 
 Requirements: Python 3.12 and [uv](https://docs.astral.sh/uv/).
 
 ```bash
-uv sync                  # create .venv and install dependencies
+uv sync --frozen         # install the exact dependencies recorded in uv.lock
 cp .env.example .env     # then add your Anthropic API key
 ```
 
 The key comes from the [Claude Console](https://platform.claude.com) (Settings → API Keys).
 `.env` is git-ignored. Model and effort can be changed there too (see `.env.example`).
+
+The code defaults to `claude-opus-5-5` with `low` effort. The saved live evaluations used
+`claude-sonnet-5-5` with `medium` effort; to use that same configuration, add these lines
+to `.env`:
+
+```dotenv
+LLM_MODEL=claude-sonnet-5-5
+LLM_EFFORT=medium
+```
+
+No model comparison has been performed. Never copy the API key into committed files.
 
 ## Run the chat
 
@@ -70,17 +91,20 @@ curl -X POST http://localhost:8000/chat -H "Content-Type: application/json" \
 
 The client sends only the conversation id and the new message. Reusing the same id continues
 the conversation. Responses: `200` with the reply, `422` for an invalid body (e.g. a blank
-message), `503` if Claude is unavailable.
+message), `503` if Claude is unavailable or returns an unusable decision. `GET /health`
+reports that the local API is running; it does not check Claude availability.
 
 ## Development
 
 ```bash
 uv run pytest            # run tests (offline: no network, no API key)
 uv run ruff check .      # lint
-uv run ruff format .     # format
+uv run ruff format --check .  # verify formatting without changing files
 ```
 
-To try a single Claude call without the API (needs the key; costs a fraction of a cent):
+The V1 release has 64 offline tests. To apply formatting, use `uv run ruff format .`.
+
+To try a single Claude call without the API server (needs credentials; incurs API usage):
 
 ```bash
 uv run python -m scripts.try_claude
@@ -110,14 +134,10 @@ companion review document, referencing the report and case id. API failures are 
 errors; dependent turns are skipped, and the command exits with a nonzero status. The JSON
 review fields stay `pending` until someone explicitly grades them.
 
-The [first baseline review](docs/v1-evaluation.md) records 9 passes and 1 brevity failure,
-with no execution errors. Its report includes the reviewed verdicts and reasons. This is
-one run of Sonnet at medium effort; other models and effort levels have not been compared.
-The same review document also records a subsequent concision prompt change and rerun:
-the booking case passed, while an unnecessary booking follow-up in the medication case
-remains a brevity finding. Both runs and their original criteria are saved separately.
-The user's [15:30 run](evals/results/20261111T183034467064Z.json) has also been reviewed:
-9 passes and the same medication-reply brevity/focus finding, using the updated prompt.
+[Historical reviews](docs/v1-evaluation.md) preserve the original replies, prompt versions,
+and recorded judgments, including subjective brevity findings. These are small learning
+experiments, not a model ranking. The later escalation work has separate, explicit checks
+and final evidence below; earlier reports were not rewritten to reflect later fixes.
 
 ## LLM-based escalation
 
@@ -145,3 +165,21 @@ The report includes each structured `decision` and an `escalation_check` compari
 the expected level declared before the run. The command exits nonzero for a level mismatch
 or execution error. These exact checks are separate from reviewing the full reply; its
 review stays pending until recorded.
+
+The [final escalation report](evals/results/v1-llm-escalation-final-sonnet-medium.json)
+matched all 14 expected decisions across 12 scenarios in one Sonnet/medium run, with no
+execution errors. It includes negation, resolved past symptoms, unresolved conversation
+context, English/Portuguese replies, and instructions attempting to suppress escalation.
+
+## Known limitations
+
+- No calendar access or actual booking, rescheduling, or cancellation. The assistant gathers
+  preferences and directs the patient to call.
+- History belongs to one API process and disappears on restart. It has no length cap or
+  expiration. "New conversation" changes the id; it does not delete the previous server history.
+- Escalation recognition depends on Claude and may be incorrect. The fixed templates are
+  learning examples, not clinically validated policies. Nobody is automatically notified.
+- Authentication, rate limiting, durable storage, and patient-data retention/deletion workflows
+  are outside V1. Use fictional data for this local learning demo.
+- Clinic details and phone numbers are fictional. Model comparisons, repeated-run reliability
+  measurements, and remaining style refinements are follow-up work.
