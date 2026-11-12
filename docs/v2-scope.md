@@ -1,8 +1,9 @@
 # V2 — Scheduling Scope and Acceptance Checklist
 
 **Status: draft for discussion.** The sequence is agreed: V2 uses an explicit Python workflow;
-LangGraph is introduced in V3. V2 application work has not started. Remaining proposals below
-do not claim these capabilities exist.
+LangGraph is introduced in V3. Step 1.1 is implemented: ConversationService now stores typed
+in-memory state containing message history. Scheduling behavior is not implemented yet;
+the remaining proposals below do not claim these capabilities exist.
 
 ## Goal
 
@@ -198,6 +199,10 @@ step, explain its request/data flow, verify it, and stop for review.
    in V3 are agreed; calendar layout and patient-reference proposals remain for later review.
 1. Introduce typed in-memory conversation state and explicit Python workflow stages behind
    ConversationService, preserving V1 chat/escalation and API behavior without calendar writes.
+   **Step 1.1 complete:** `ConversationState` contains the existing message history;
+   ConversationService stores these objects by `conversation_id`. Existing offline tests
+   verify memory, isolation, failed-turn handling, and configured escalation. Workflow stages
+   and scheduling fields will be added when their behavior is implemented.
 2. Add structured preference extraction, validation, corrections, and missing-detail questions.
 3. Add mock CalendarService reads and slot calculation; demonstrate real mock-backed offers.
 4. Add selection, exact summary, confirmation, refusal, and draft abandonment with no writes yet.

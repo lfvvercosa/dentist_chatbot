@@ -20,7 +20,8 @@ Streamlit  →  FastAPI /chat  →  ConversationService  →  Claude
 See [docs/v1-scope.md](docs/v1-scope.md) for the completed checklist and
 [docs/v1-decisions.md](docs/v1-decisions.md) for design choices, lessons, and limitations.
 
-V2 is being scoped in [docs/v2-scope.md](docs/v2-scope.md); application work has not started.
+V2 development has started; see [docs/v2-scope.md](docs/v2-scope.md). Step 1.1 introduces typed,
+in-memory conversation state containing message history; scheduling is not implemented yet.
 It will add scheduling with explicit Python state, structured preference extraction, and
 CalendarService (mock first, then Google test calendars), including confirmation, availability
 rechecking, verified booking, and duplicate protection. V3 will first migrate the working flow
