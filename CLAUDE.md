@@ -7,7 +7,7 @@ Guidance for Claude when working in this repository.
 Dental clinic AI assistant for a **fictional** clinic ("Big Smile Clinic"), built as four incremental versions in **one repo**, each tagged (`v1.0` … `v4.0`) and runnable on its own.
 
 - **Read first:** `documents/01_PROJECT_CONTEXT.md`, `documents/02_FOUR_VERSION_ROADMAP.md`, `documents/03_ARCHITECTURE_AND_LLM_HANDOFF.md`.
-- **Current release:** V1 is complete at `v1.0`; see `docs/v1-scope.md`. **Current development:** V2 step 1.1 adds typed in-memory conversation state containing message history; scheduling is not implemented yet. See `docs/v2-scope.md` and inspect the code before proposing work; never assume a planned feature exists.
+- **Current release:** V1 is complete at `v1.0`; see `docs/v1-scope.md`. **Current development:** V2 steps 1.1–1.2 add typed in-memory state and validated booking intent driving `chatting`/`collecting_preferences` stages. Preference extraction, calendar access, and booking are not implemented yet. See `docs/v2-scope.md` and inspect the code before proposing work; never assume a planned feature exists.
 - V2 uses explicit typed conversation state and ordinary Python scheduling functions. LangGraph, PostgreSQL, and multi-agent orchestration are V3; introduce them in that order. WhatsApp, Redis, Celery, Docker and AWS are V4.
 
 ## How to work with the developer
@@ -33,6 +33,7 @@ Streamlit → FastAPI route → ConversationService → LLMClient → Claude
 | `app/core/clinic_config.py` | Pydantic models + `load_clinic_config()`; validates the YAML at load (fail fast) |
 | `app/core/settings.py` | Settings from env vars / `.env` (`pydantic-settings`) |
 | `app/schemas/` | API contract (`ChatRequest`, `ChatResponse`) |
+| `app/schemas/conversation.py` | V2 internal conversation history and workflow stage |
 | `app/api/routes.py` | Thin routes; service injected with `Depends()` |
 | `app/services/` | `ConversationService`: channel-independent entry point for a message |
 | `app/services/escalation.py` | Selects configured guidance from a validated LLM decision; never matches symptom keywords |

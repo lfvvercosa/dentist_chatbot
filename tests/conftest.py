@@ -18,6 +18,7 @@ class FakeLLM(LLMClient):
         self.error: LLMError | None = None
         self.escalation = "none"
         self.language = "pt"
+        self.intent = "other"
 
     def generate(self, system: str, messages: Sequence[ChatMessage]) -> LLMResult:
         self.calls.append((system, list(messages)))
@@ -30,6 +31,7 @@ class FakeLLM(LLMClient):
             output_tokens=5,
             escalation=self.escalation,
             language=self.language,
+            intent=self.intent,
         )
 
 

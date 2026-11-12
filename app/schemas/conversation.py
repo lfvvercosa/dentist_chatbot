@@ -1,8 +1,12 @@
 """Internal conversation state, separate from the public chat API schemas."""
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.llm.client import ChatMessage
+
+ConversationStage = Literal["chatting", "collecting_preferences"]
 
 
 class ConversationState(BaseModel):
@@ -11,3 +15,4 @@ class ConversationState(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     messages: list[ChatMessage] = Field(default_factory=list)
+    stage: ConversationStage = "chatting"

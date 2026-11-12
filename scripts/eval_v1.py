@@ -98,6 +98,7 @@ def run_case(case: EvalCase, service: ConversationService, llm: RecordingLLM) ->
                 turn["decision"] = {
                     "escalation": result["escalation"],
                     "language": result["language"],
+                    "intent": result["intent"],
                 }
                 if case.expected_escalation is not None:
                     expected = case.expected_escalation[index]

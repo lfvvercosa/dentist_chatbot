@@ -69,6 +69,7 @@ class ClaudeClient(LLMClient):
             output_tokens=response.usage.output_tokens,
             escalation=decision.escalation,
             language=decision.language,
+            intent=decision.intent,
         )
 
 

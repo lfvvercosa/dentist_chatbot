@@ -2,7 +2,7 @@
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.llm.client import EscalationLevel, ResponseLanguage
+from app.llm.client import ConversationIntent, EscalationLevel, ResponseLanguage
 
 
 class AssistantDecision(BaseModel):
@@ -10,6 +10,9 @@ class AssistantDecision(BaseModel):
 
     escalation: EscalationLevel = Field(description="Escalation needed in the current context")
     language: ResponseLanguage = Field(description="Patient's language; Portuguese if unclear")
+    intent: ConversationIntent = Field(
+        description="booking for a new appointment request or its follow-up; other otherwise"
+    )
     reply: str = Field(description="Normal reply for none; empty string when escalating")
 
     @model_validator(mode="after")

@@ -76,7 +76,11 @@ def test_escalation_check_compares_the_model_decision_with_expected_level(
     fake_llm.escalation = "urgent"
     match = run_case(case, service, llm)
     assert match["turns"][0]["escalation_check"]["passed"] is True
-    assert match["turns"][0]["decision"] == {"escalation": "urgent", "language": "pt"}
+    assert match["turns"][0]["decision"] == {
+        "escalation": "urgent",
+        "language": "pt",
+        "intent": "other",
+    }
     assert match["turns"][0]["reply"] == escalation_service.reply("urgent", "pt")
     assert match["review"]["verdict"] == "pending"  # Classification check is not full review.
 

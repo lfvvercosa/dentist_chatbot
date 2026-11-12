@@ -25,7 +25,9 @@ def test_health(client):
     assert response.json() == {"status": "ok"}
 
 
-def test_chat_returns_llm_reply(client, fake_llm):
+@pytest.mark.parametrize("intent", ["other", "booking"])
+def test_chat_returns_llm_reply(client, fake_llm, intent):
+    fake_llm.intent = intent
     response = client.post("/chat", json={"conversation_id": "abc-123", "message": "  hello  "})
 
     assert response.status_code == 200

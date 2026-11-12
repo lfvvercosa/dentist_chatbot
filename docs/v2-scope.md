@@ -1,8 +1,9 @@
 # V2 — Scheduling Scope and Acceptance Checklist
 
 **Status: draft for discussion.** The sequence is agreed: V2 uses an explicit Python workflow;
-LangGraph is introduced in V3. Step 1.1 is implemented: ConversationService now stores typed
-in-memory state containing message history. Scheduling behavior is not implemented yet;
+LangGraph is introduced in V3. Steps 1.1–1.2 are implemented: ConversationService stores typed
+in-memory state containing message history and an explicit stage, updated from validated
+booking intent. Preference extraction, calendar access, and booking are not implemented yet;
 the remaining proposals below do not claim these capabilities exist.
 
 ## Goal
@@ -95,6 +96,37 @@ A request does not remain open while waiting for confirmation.
 Calendar methods are tools: ordinary typed functions called by workflow functions after
 validation. Start with controlled dispatch from structured proposals, without an autonomous
 tool loop or a second agent. Python code manages transitions; CalendarService performs I/O.
+
+### Current implementation: step 1.2
+
+The same Claude call returns `escalation`, `language`, `intent`, and `reply`. The new intent
+is `booking` for a new appointment request or its follow-up, and `other` otherwise. The adapter
+rejects missing or invalid intent values as LLMError, using the existing HTTP 503 behavior.
+The public response still contains only `conversation_id` and the final `reply`.
+
+Python applies these transitions after a usable decision and reply are available:
+
+| Current stage | Validated decision | Resulting stage |
+|---|---|---|
+| Either | Urgent or emergency escalation, regardless of intent | `chatting`; return configured guidance |
+| Either | No escalation, `booking` | `collecting_preferences` |
+| `chatting` | No escalation, `other` | `chatting` |
+| `collecting_preferences` | No escalation, `other` (for example a clinic FAQ) | `collecting_preferences` |
+
+Failed interpretations leave the existing stage and messages unchanged. Logs include intent
+and resulting stage without patient text. New opt-in evaluation reports also record intent;
+historical reports remain unchanged. Offline tests verify the adapter and transitions using
+fakes; they do not establish the real model's intent accuracy.
+
+Step 1.2 verification: 74 offline tests, Ruff lint/format checks, and whitespace checks pass.
+An offline demonstration using the real adapter and service with a stub SDK confirmed
+booking → preference collection, FAQ → preserved collection, and emergency → configured
+guidance with the stage reset to chatting. No live model evaluation was run for this step.
+
+At this step, `collecting_preferences` records a pending stage; preferences are still discussed
+through ordinary chat history, without structured extraction or completeness checks. Draft
+abandonment and later confirmation stages remain future work. The assistant still explains
+that it cannot check availability or book appointments.
 
 ## Scheduling journey
 
@@ -201,8 +233,10 @@ step, explain its request/data flow, verify it, and stop for review.
    ConversationService, preserving V1 chat/escalation and API behavior without calendar writes.
    **Step 1.1 complete:** `ConversationState` contains the existing message history;
    ConversationService stores these objects by `conversation_id`. Existing offline tests
-   verify memory, isolation, failed-turn handling, and configured escalation. Workflow stages
-   and scheduling fields will be added when their behavior is implemented.
+   verify memory, isolation, failed-turn handling, and configured escalation.
+   **Step 1.2 complete:** validated `booking`/`other` intent drives explicit `chatting` and
+   `collecting_preferences` stages. FAQs preserve the pending stage, escalation takes priority,
+   and failed turns preserve state. Scheduling fields will be added with preference extraction.
 2. Add structured preference extraction, validation, corrections, and missing-detail questions.
 3. Add mock CalendarService reads and slot calculation; demonstrate real mock-backed offers.
 4. Add selection, exact summary, confirmation, refusal, and draft abandonment with no writes yet.

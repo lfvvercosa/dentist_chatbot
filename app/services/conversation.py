@@ -44,9 +44,17 @@ class ConversationService:
                 str(exc),
             )
             raise
+
+        # Python owns transitions; an unrelated question preserves the booking draft.
+        # Escalation takes priority, even when the same message asks for an appointment.
+        if result.escalation != "none":
+            state.stage = "chatting"
+        elif result.intent == "booking":
+            state.stage = "collecting_preferences"
+
         logger.info(
             "chat request_id=%s conversation_id=%s outcome=ok latency_ms=%d model=%s "
-            "input_tokens=%d output_tokens=%d escalation=%s",
+            "input_tokens=%d output_tokens=%d escalation=%s intent=%s stage=%s",
             request_id,
             conversation_id,
             _elapsed_ms(start),
@@ -54,6 +62,8 @@ class ConversationService:
             result.input_tokens,
             result.output_tokens,
             result.escalation,
+            result.intent,
+            state.stage,
         )
 
         # Save the turn only after a successful reply: if the call fails, the history

@@ -111,3 +111,67 @@ def test_no_keyword_matching_overrides_the_llm_decision(service, fake_llm):
     reply = service.handle_message("conv-1", "Não tenho dificuldade para respirar.")
     assert reply == "reply 1"
     assert len(fake_llm.calls) == 1
+
+
+def test_booking_intent_starts_collecting_preferences_and_isolates_other_conversations(
+    service, fake_llm, caplog
+):
+    caplog.set_level(logging.INFO, logger="app.services.conversation")
+    fake_llm.intent = "booking"
+
+    service.handle_message("booking", "Quero marcar uma limpeza")
+
+    assert service._states["booking"].stage == "collecting_preferences"
+    assert "intent=booking stage=collecting_preferences" in caplog.text
+
+    fake_llm.intent = "other"
+    service.handle_message("other", "What are your hours?")
+
+    assert service._states["other"].stage == "chatting"
+    assert service._states["booking"].stage == "collecting_preferences"
+
+
+def test_unrelated_faq_preserves_the_pending_booking_stage(service, fake_llm):
+    fake_llm.intent = "booking"
+    service.handle_message("conv-1", "I'd like an appointment")
+
+    fake_llm.intent = "other"
+    reply = service.handle_message("conv-1", "Where is the clinic?")
+
+    assert reply == "reply 2"
+    assert service._states["conv-1"].stage == "collecting_preferences"
+    assert service._states["conv-1"].messages[-1] == ChatMessage("assistant", reply)
+
+
+@pytest.mark.parametrize("level", ["urgent", "emergency"])
+def test_escalation_stops_preference_collection_even_with_booking_intent(
+    service, fake_llm, escalation_service, level
+):
+    fake_llm.intent = "booking"
+    service.handle_message("conv-1", "I'd like an appointment")
+    fake_llm.escalation = level
+
+    reply = service.handle_message("conv-1", "Help, I need an appointment urgently")
+
+    assert reply == escalation_service.reply(level, "pt")
+    assert service._states["conv-1"].stage == "chatting"
+    assert service._states["conv-1"].messages[-1] == ChatMessage("assistant", reply)
+
+
+@pytest.mark.parametrize("initial_intent", ["other", "booking"])
+def test_failed_interpretation_preserves_stage_and_history(service, fake_llm, initial_intent):
+    fake_llm.intent = initial_intent
+    service.handle_message("conv-1", "First message")
+    state = service._states["conv-1"]
+    previous_stage = state.stage
+    previous_messages = list(state.messages)
+
+    fake_llm.intent = "booking" if initial_intent == "other" else "other"
+    fake_llm.escalation = "emergency"
+    fake_llm.error = LLMError("interpretation unavailable")
+
+    with pytest.raises(LLMError):
+        service.handle_message("conv-1", "Next message")
+
+    assert state.stage == previous_stage
+    assert state.messages == previous_messages

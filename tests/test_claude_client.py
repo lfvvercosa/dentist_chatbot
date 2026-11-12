@@ -31,9 +31,16 @@ class StubSDK:
 
 
 def make_response(
-    stop_reason="end_turn", text="Hello!", escalation="none", language="pt", raw=None
+    stop_reason="end_turn",
+    text="Hello!",
+    escalation="none",
+    language="pt",
+    raw=None,
+    intent="other",
 ):
-    body = json.dumps({"reply": text, "escalation": escalation, "language": language})
+    body = json.dumps(
+        {"reply": text, "escalation": escalation, "language": language, "intent": intent}
+    )
     return SimpleNamespace(
         stop_reason=stop_reason,
         model="claude-opus-5-5",
@@ -62,6 +69,7 @@ def test_sends_request_and_returns_text_and_usage():
     assert result.text == "We open at 8am."
     assert (result.input_tokens, result.output_tokens) == (120, 15)
     assert result.escalation == "none" and result.language == "pt"
+    assert result.intent == "other"
 
     sent = sdk.calls[0]
     assert sent["system"] == "You are a receptionist."
@@ -75,6 +83,17 @@ def test_sends_request_and_returns_text_and_usage():
         "format": {"type": "json_schema", "schema": AssistantDecision.model_json_schema()},
     }
     assert sent["fallbacks"] == "default"
+
+
+def test_booking_intent_is_returned_from_the_validated_decision():
+    sdk = StubSDK(response=make_response(text="Which day would you prefer?", intent="booking"))
+
+    result = make_client(sdk).generate(
+        system="s", messages=[ChatMessage("user", "I would like a cleaning")]
+    )
+
+    assert result.intent == "booking"
+    assert result.text == "Which day would you prefer?"
 
 
 @pytest.mark.parametrize("stop_reason", ["refusal", "max_tokens", "tool_use", "pause_turn", None])
@@ -122,10 +141,13 @@ def test_structured_escalation_allows_empty_normal_reply(level):
     [
         "patient secret: not JSON",
         '{"reply":"patient secret"}',
-        '{"reply":"patient secret","escalation":"invalid","language":"pt"}',
-        '{"reply":"patient secret","escalation":"none","language":"fr"}',
-        '{"reply":"   ","escalation":"none","language":"pt"}',
-        '{"reply":"patient secret","escalation":"none","language":"pt","extra":true}',
+        '{"reply":"patient secret","escalation":"invalid","language":"pt","intent":"other"}',
+        '{"reply":"patient secret","escalation":"none","language":"fr","intent":"other"}',
+        '{"reply":"   ","escalation":"none","language":"pt","intent":"other"}',
+        '{"reply":"patient secret","escalation":"none","language":"pt",'
+        '"intent":"other","extra":true}',
+        '{"reply":"patient secret","escalation":"none","language":"pt"}',
+        '{"reply":"patient secret","escalation":"none","language":"pt","intent":"book_now"}',
     ],
 )
 def test_invalid_decision_is_rejected_without_exposing_content(raw):

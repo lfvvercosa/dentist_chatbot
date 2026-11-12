@@ -7,6 +7,7 @@ from typing import Literal
 
 EscalationLevel = Literal["none", "urgent", "emergency"]
 ResponseLanguage = Literal["pt", "en"]
+ConversationIntent = Literal["other", "booking"]
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,7 @@ class LLMResult:
     output_tokens: int
     escalation: EscalationLevel = "none"
     language: ResponseLanguage = "pt"
+    intent: ConversationIntent = "other"
 
 
 class LLMError(Exception):
