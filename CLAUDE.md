@@ -7,8 +7,8 @@ Guidance for Claude when working in this repository.
 Dental clinic AI assistant for a **fictional** clinic ("Big Smile Clinic"), built as four incremental versions in **one repo**, each tagged (`v1.0` … `v4.0`) and runnable on its own.
 
 - **Read first:** `documents/01_PROJECT_CONTEXT.md`, `documents/02_FOUR_VERSION_ROADMAP.md`, `documents/03_ARCHITECTURE_AND_LLM_HANDOFF.md`.
-- **Current version and progress:** `docs/v1-scope.md` (decisions, numbered steps, acceptance checklist). Check it and inspect the code before proposing work; never assume a planned feature exists.
-- Do not introduce infrastructure reserved for a later version (LangGraph is V2; PostgreSQL and multi-agent are V3; WhatsApp, Redis, Celery, Docker and AWS are V4).
+- **Current release:** V1 is complete at `v1.0`; see `docs/v1-scope.md`. **Next milestone:** `docs/v2-scope.md` defines the V2 scheduling plan; application work has not started. Check the scope and inspect the code before proposing work; never assume a planned feature exists.
+- V2 uses explicit typed conversation state and ordinary Python scheduling functions. LangGraph, PostgreSQL, and multi-agent orchestration are V3; introduce them in that order. WhatsApp, Redis, Celery, Docker and AWS are V4.
 
 ## How to work with the developer
 
@@ -49,6 +49,7 @@ Streamlit → FastAPI route → ConversationService → LLMClient → Claude
 - **Server owns conversation history**, keyed by `conversation_id`; clients send only the id and the new message. History is stored as provider-neutral text (`ChatMessage`).
 - **Clinic facts go into the system prompt** (context stuffing). No RAG or vector DB.
 - **No LangChain in V1.** Use the official `anthropic` SDK behind `LLMClient`.
+- **No LangGraph in V2.** Implement the scheduling flow in Python first. At the start of V3, migrate it to LangGraph while preserving behavior, then add PostgreSQL persistence, then multi-agent orchestration. Booking safeguards remain backend rules in both implementations.
 - **Claude settings** are configurable via `.env`: `LLM_MODEL` (default `claude-opus-5-5`), `LLM_EFFORT` (default `low`), timeout 60s, refusal fallback (`fallbacks="default"`) enabled. Check `stop_reason` before reading content; translate SDK errors to `LLMError`.
 - The bot replies in the patient's language (Portuguese or English). It is an administrative assistant: no diagnosis; urgent symptoms are directed to professional care.
 - Escalation recognition uses the LLM's contextual decision in the same call as the reply. Validate the structured level/language/reply at the adapter boundary; backend code selects the template. The developer rejected a keyword detector. Recognition is not available independently of the LLM.
@@ -75,4 +76,4 @@ Python 3.12, managed with `uv` (add packages with `uv add`, dev packages with `u
 
 ## Updating docs
 
-After each step, update `README.md` (run instructions) and `docs/v1-scope.md` (step status) when relevant. When a version is done, record decisions and lessons in `docs/vN-decisions.md`.
+After each step, update `README.md` (run instructions) and the active version's scope (currently `docs/v2-scope.md`) when relevant. Preserve completed V1 records; label later planning revisions explicitly. When a version is done, record decisions and lessons in `docs/vN-decisions.md`.

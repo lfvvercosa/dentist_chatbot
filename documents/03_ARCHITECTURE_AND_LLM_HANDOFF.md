@@ -10,14 +10,15 @@ The eventual message flow is:
 
 `Streamlit or WhatsApp → FastAPI/channel adapter → ConversationService → LangGraph orchestration → business services/tools → calendar + persistence → reply through originating channel`
 
-In V1 the middle can be a simple conversation service with an LLM call; LangGraph is introduced in V2. In V4 WhatsApp messages are handled asynchronously through webhook, queue, and worker. The chat frontend and WhatsApp transport must not directly implement scheduling business rules.
+V1 uses a simple conversation service with an LLM call. V2 adds a scheduling workflow using ordinary Python functions and explicit typed state. V3 first migrates that flow into LangGraph, then adds PostgreSQL persistence, then multi-agent orchestration. In V4 WhatsApp messages are handled asynchronously through webhook, queue, and worker. The chat frontend and WhatsApp transport must not directly implement scheduling business rules.
 
 ### Responsibilities
 - **Streamlit:** Display messages, collect input, manage UI state and conversation identifier, call FastAPI. Do not call the LLM or Google Calendar directly.
 - **FastAPI:** Validate API requests, expose chat endpoints, route requests to application services; later receive WhatsApp webhooks.
 - **ConversationService:** The application entry point for a message. Load conversation context, invoke the appropriate workflow, and return a response. Preserve a stable contract as channels evolve.
 - **LLM interaction layer:** Prompting, structured extraction, language generation, and tool-selection proposals. The LLM is not the authoritative record of bookings.
-- **LangGraph (V2+):** Maintain workflow state, transitions, confirmation checkpoints, and agent routing as complexity grows.
+- **Python scheduling workflow (V2):** Maintain explicit stages and typed conversation state; enforce confirmation and allowed transitions before calling calendar tools.
+- **LangGraph (V3+):** Express the existing workflow as state, nodes, and conditional edges; introduce graph checkpoints before durable persistence and agent routing.
 - **Interaction/triage responsibility (V3+):** Understand intent, collect relevant details, handle FAQ, identify urgent concerns and out-of-scope messages.
 - **Scheduling responsibility:** Identify suitable dentist/service, retrieve available slots, request confirmation, and call deterministic booking/change/cancel services.
 - **Communication/notification responsibility:** Compose clear user-facing messages and notifications; channel adapters perform delivery.
@@ -30,7 +31,7 @@ In V1 the middle can be a simple conversation service with an LLM call; LangGrap
 2. **Agents are not equivalent to services:** A deterministic calendar API wrapper or notification sender does not need an LLM. Multi-agent coordination should solve a concrete routing/reasoning problem, not merely increase agent count.
 3. **Typed boundaries:** Validate incoming/outgoing API data and tool arguments; use structured outputs when appropriate. Never trust free-form model text as a database command.
 4. **Separation of channels:** Streamlit comes first; WhatsApp is a later input/output adapter, not a reason to rewrite core scheduling logic.
-5. **Persistence evolves:** V1 can use ephemeral history; V2 introduces LangGraph checkpoints; V3 uses PostgreSQL for durable checkpoints and business records. A checkpoint is not a substitute for an appointment database.
+5. **Persistence evolves:** V1 uses ephemeral history; V2 keeps history and explicit scheduling state in memory, keyed by `conversation_id`. V3 first migrates to LangGraph with in-memory checkpoints and `thread_id = conversation_id`, then uses PostgreSQL for durable checkpoints and business records. A checkpoint is not a substitute for an appointment database.
 6. **Async only when needed:** V1–V3 can use straightforward request/response processing for local learning. Redis/Celery are introduced with real webhook reliability requirements in V4.
 7. **Mock before real integration:** Exercise calendar behavior with a fake service before requesting OAuth credentials or changing real calendars.
 8. **No invented clinical or operational facts:** Services, provider mappings, clinic hours, prices, availability, and policies must come from configured data.
@@ -68,7 +69,7 @@ The chatbot is an administrative assistant, not a dentist. It may ask limited cl
 - `app/api/` — HTTP endpoints and channel adapters
 - `app/services/` — conversation and business services
 - `app/agents/` — LLM-based responsibilities introduced when needed
-- `app/workflows/` — LangGraph state and graph definition
+- `app/workflows/` — Python scheduling state and transitions in V2; LangGraph state and graph definition in V3
 - `app/schemas/` — typed contracts
 - `app/repositories/` — persistence adapters
 - `app/core/` — configuration and shared infrastructure
@@ -103,6 +104,7 @@ When beginning work or a new milestone:
 - Exact thread ID and patient ID mapping.
 - Where and how to persist message history in each version.
 - Whether the V3 multi-agent design demonstrably improves on the simpler V2 workflow.
+- What the initial V3 LangGraph migration adds compared with the same workflow expressed in ordinary Python, before persistence and multi-agent work.
 - Hosting provider and WhatsApp onboarding details for V4.
 
 ## Final reminder

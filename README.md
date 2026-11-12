@@ -20,7 +20,14 @@ Streamlit  →  FastAPI /chat  →  ConversationService  →  Claude
 See [docs/v1-scope.md](docs/v1-scope.md) for the completed checklist and
 [docs/v1-decisions.md](docs/v1-decisions.md) for design choices, lessons, and limitations.
 
-V2 will evolve this codebase on `main`. To run the fixed V1 snapshot in a repository
+V2 is being scoped in [docs/v2-scope.md](docs/v2-scope.md); application work has not started.
+It will add scheduling with explicit Python state, structured preference extraction, and
+CalendarService (mock first, then Google test calendars), including confirmation, availability
+rechecking, verified booking, and duplicate protection. V3 will first migrate the working flow
+to LangGraph, then add PostgreSQL persistence, then multi-agent orchestration. WhatsApp and
+deployment infrastructure remain V4 work.
+
+Development continues in this codebase on `main`. To run the fixed V1 snapshot in a repository
 containing the release tag:
 
 ```bash

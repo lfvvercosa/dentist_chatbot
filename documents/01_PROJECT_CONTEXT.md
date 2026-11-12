@@ -16,7 +16,7 @@ The developer is a data scientist learning practical AI engineering. The project
 - **WhatsApp is deferred to V4** as another adapter to the same application capabilities. Streamlit should remain available as a developer/testing interface.
 - Build and test locally first. Introduce deployment infrastructure only when needed.
 - Use Python, typed data contracts, and clear boundaries between chat transport, orchestration, business services, persistence, and external integrations.
-- Introduce LangGraph when the application has a real stateful workflow (V2), not simply to wrap a basic V1 chat.
+- Build V2's scheduling workflow with explicit typed state and ordinary Python functions. Introduce LangGraph at the start of V3 by migrating that working flow before adding PostgreSQL persistence and multi-agent orchestration.
 - Start with simple conversation history; introduce durable state and multi-agent coordination progressively.
 - Use mock integrations before connecting real external systems.
 - Do not confuse an LLM's proposed action with a completed action. Calendar and messaging operations must be executed and verified by backend services.

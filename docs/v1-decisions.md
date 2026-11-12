@@ -39,7 +39,8 @@ logic and make another channel harder to add.
 
 V1 uses the official Anthropic SDK without LangChain or LangGraph. The learning goal is to
 understand messages, system prompts, usage, failure modes, and conversation state directly.
-LangGraph is reserved for V2's scheduling workflow.
+At the V1 release, LangGraph was planned for V2's scheduling workflow. The later planning
+revision moves it to V3; V2 first implements scheduling with explicit Python state and functions.
 
 `LLMClient` is our abstract base class. ClaudeClient and test fakes inherit from it; the
 application receives the client through constructor injection. The ABC requires an
@@ -150,11 +151,16 @@ saved JSON reports preserve the original evidence.
 
 ## V2 handoff
 
-First write `docs/v2-scope.md`. Retain Streamlit, the API contract, and ConversationService
-as the entry point. Add LangGraph scheduling state, structured preference extraction, and
-a CalendarService that starts with a mock and then a Google Calendar test calendar.
+**Updated after V1:** the original handoff planned LangGraph in V2. The agreed learning
+sequence now introduces it at the start of V3, after the same flow works in ordinary Python.
+
+Use the draft [V2 scope](v2-scope.md). Retain Streamlit, the API contract, and ConversationService
+as the entry point. Add explicit typed scheduling state, Python workflow functions, structured
+preference extraction, and a CalendarService that starts with a mock and then a Google Calendar
+test calendar.
 Require explicit confirmation, recheck availability before writes, and verify booking
 success before reporting it. Protect against duplicate bookings.
 
-PostgreSQL and multi-agent orchestration remain V3 work. WhatsApp, Redis/Celery, Docker,
-and cloud operations remain V4 work. V1 does not pre-create that infrastructure.
+V3 first migrates the working flow to LangGraph, then adds PostgreSQL persistence, then
+multi-agent orchestration. WhatsApp, Redis/Celery, Docker, and cloud operations remain V4 work.
+V1 does not pre-create that infrastructure.

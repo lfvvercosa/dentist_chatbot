@@ -31,33 +31,34 @@ Avoid overengineering early releases. Each version should demonstrate a meaningf
 
 **Done when:** The developer starts Streamlit and FastAPI locally, chats across multiple turns, observes relevant context retention, sees appropriate safety behavior, and can call the API directly using `/docs`.
 
-## V2 — Agentic Scheduling with LangGraph
-**Learning objective:** Learn stateful workflows, LangGraph graph design, tool calling, structured extraction, checkpoints, and safe external actions.
+## V2 — Scheduling with Explicit Python State
+**Learning objective:** Learn structured extraction, explicit workflow state and transitions, calendar tools, and safe external actions using ordinary Python before introducing LangGraph in V3.
 
 **Retain:** V1 chat interface, API, FAQ behavior, and safety boundaries.
 
 **Add:**
-- LangGraph workflow with explicit state, nodes, conditional routing, and a stable conversation/thread identifier.
+- An ordinary Python workflow with typed state, explicit stages, allowed transitions, and a stable conversation identifier.
 - Structured extraction of intent, appointment type, preferred date/time, and missing details.
 - Scheduling tools through a `CalendarService` abstraction, first with a mock implementation and then with a Google Calendar test calendar.
 - Configured dentist-to-service matching, appointment durations, clinic hours, and timezone.
-- Read availability, present real candidate slots, collect a slot selection, request explicit confirmation, recheck availability, and create the event.
+- Read availability, present real candidate slots, collect a slot selection, request explicit confirmation, recheck availability, create the event, and retrieve it to verify the booking before reporting success.
 - Clear error states for unavailable slots, invalid dates, failed calendar calls, and abandoned bookings.
-- Development checkpointing (in-memory is acceptable for initial learning; persistent local checkpointing is an optional improvement). Do not imply in-memory state survives restart.
-- Basic protection against duplicate booking attempts and repeated confirmations.
+- In-memory conversation history and scheduling state keyed by `conversation_id`. No graph checkpoints or durable storage; state is lost on restart.
+- Basic protection against duplicate booking attempts and repeated confirmations, with stable operation references and explicit handling of unknown write outcomes. Guarantees are bounded to the documented single-process runtime.
 
-**Not required:** Multiple autonomous agents, PostgreSQL patient database, WhatsApp, Celery, Redis, AWS deployment.
+**Deferred:** LangGraph, multiple autonomous agents, and PostgreSQL to V3; WhatsApp, Celery, Redis, and deployment infrastructure to V4.
 
 **Testing:** Mock-calendar workflow tests for successful booking, missing information, no slots, confirmation refusal, stale slots, failed writes, and repeated requests. Separate opt-in integration test for a Google Calendar sandbox/test calendar.
 
-**Done when:** From Streamlit, a patient requests a consultation, selects an actual available test-calendar slot, explicitly confirms, and sees a success message **only after** the event is created. Booking is not duplicated by a repeated confirmation.
+**Done when:** From Streamlit, a patient requests a consultation, selects an actual available test-calendar slot, explicitly confirms, and sees a success message **only after** the event is created and verified. Booking is not duplicated by a repeated confirmation. See [V2 scope](../docs/v2-scope.md) for the detailed journey and acceptance checklist.
 
-## V3 — Durable Multi-Agent Application
-**Learning objective:** Engineer persistence, specialized responsibilities, orchestration, state recovery, service/repository boundaries, and testable business workflows.
+## V3 — LangGraph, Durable State, and Multi-Agent Orchestration
+**Learning objective:** Learn graph orchestration by migrating a working Python workflow, then engineer persistence, specialized responsibilities, state recovery, and service/repository boundaries.
 
 **Retain:** V2 working booking flow and Streamlit frontend.
 
 **Add:**
+- LangGraph state, nodes, conditional routing, and checkpointing, using `thread_id = conversation_id` while retaining the same public API and booking rules.
 - PostgreSQL for patient, appointment, and conversation business records.
 - LangGraph PostgreSQL-backed checkpoints using stable thread identifiers; clearly distinguish graph checkpoints from authoritative appointment records.
 - Database migrations and defined data access/repository interfaces.
@@ -67,6 +68,12 @@ Avoid overengineering early releases. Each version should demonstrate a meaningf
 - Better error recovery, structured logging, and observability of agent decisions.
 - Expanded unit, integration, and workflow evaluation tests.
 - Compare a simple workflow with the multi-agent design and document whether the added complexity is justified.
+
+**Learning sequence:**
+
+1. Migrate the V2 Python workflow into LangGraph with in-memory checkpoints, preserving existing behavior and tests. Compare the two implementations before adding new capabilities.
+2. Add PostgreSQL-backed checkpoints, business records, migrations, and restart recovery. A graph checkpoint is not an authoritative appointment record.
+3. Introduce multi-agent orchestration and compare it with the single-workflow design. Extend appointment lookup, verification, rescheduling, and cancellation in separate steps.
 
 **Not required:** WhatsApp, distributed queues, cloud deployment. Streamlit remains the primary interface.
 
@@ -97,11 +104,11 @@ Avoid overengineering early releases. Each version should demonstrate a meaningf
 | Streamlit chat | Yes | Yes | Yes | Retained |
 | FastAPI backend | Yes | Yes | Yes | Yes |
 | LLM + typed validation | Yes | Yes | Yes | Yes |
-| Multi-turn memory | Ephemeral | Graph checkpoints | PostgreSQL durable | Durable |
-| LangGraph | No | Yes | Yes | Yes |
+| Multi-turn memory | Ephemeral history | Explicit in-memory conversation state | Graph checkpoints + PostgreSQL durable state | Durable |
+| LangGraph | No | No | Yes | Yes |
 | Google Calendar | No | Booking | Booking + changes | Same |
 | Multi-agent orchestration | No | No | Yes | Yes |
-| Patient/appointment database | No | Minimal/local if needed | PostgreSQL | PostgreSQL |
+| Patient/appointment database | No | No; calendar events only | PostgreSQL | PostgreSQL |
 | WhatsApp | No | No | No | Yes |
 | Redis/Celery | No | No | No | Yes |
 | Cloud infrastructure | No | No | No | Yes |
