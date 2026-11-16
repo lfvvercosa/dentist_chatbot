@@ -52,6 +52,7 @@ def test_execution_error_skips_dependent_turns_without_becoming_behavior_failure
     assert result["execution_status"] == "error"
     assert result["review"]["verdict"] == "pending"
     assert result["turns"][0]["error"] == "API unavailable"
+    assert result["turns"][0]["system_prompt"] == fake_llm.calls[0][0]
     assert "usage" not in result["turns"][0]
 
     fake_llm.error = None
@@ -115,3 +116,24 @@ def test_service_update_is_saved_as_json_serializable_evaluation_evidence(
         "service_id": "cleaning",
     }
     json.dumps(result)
+
+
+def test_evaluation_saves_the_exact_prompt_with_state_for_each_turn(
+    fake_llm, escalation_service, clinic_config
+):
+    fake_llm.intent = "booking"
+    fake_llm.service_update = ServicePreferenceUpdate(action="set", service_id="cleaning")
+    llm = RecordingLLM(fake_llm)
+    service = ConversationService(llm, "base prompt", escalation_service, clinic_config)
+    case = EvalCase(id="context", messages=["A cleaning", "Tomorrow"], criteria=["Keep service"])
+
+    result = run_case(case, service, llm)
+
+    prompts = [turn["system_prompt"] for turn in result["turns"]]
+    assert prompts == [system for system, _ in fake_llm.calls]
+    assert [
+        json.loads(prompt.rsplit("\n", 1)[1])["current_workflow_state"] for prompt in prompts
+    ] == [
+        {"stage": "chatting", "service_id": None},
+        {"stage": "collecting_preferences", "service_id": "cleaning"},
+    ]

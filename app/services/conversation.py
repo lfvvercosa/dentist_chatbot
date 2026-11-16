@@ -6,6 +6,7 @@ import uuid
 
 from app.core.clinic_config import ClinicConfig
 from app.llm.client import ChatMessage, LLMClient, LLMError
+from app.prompts.system_prompt import build_turn_prompt
 from app.schemas.conversation import ConversationState
 from app.services.escalation import EscalationService
 
@@ -40,7 +41,8 @@ class ConversationService:
         # personal data (LGPD) and never goes into logs.
         start = time.perf_counter()
         try:
-            result = self._llm.generate(self._system_prompt, [*state.messages, user_message])
+            turn_prompt = build_turn_prompt(self._system_prompt, state)
+            result = self._llm.generate(turn_prompt, [*state.messages, user_message])
             # Validate the proposed service before changing state or saving this turn.
             service_id = state.service_id
             if result.escalation == "none" and result.intent == "booking":

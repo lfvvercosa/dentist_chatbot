@@ -68,9 +68,11 @@ class RecordingLLM(LLMClient):
     def __init__(self, delegate: LLMClient):
         self.delegate = delegate
         self.last_result: LLMResult | None = None
+        self.last_system: str | None = None
 
     def generate(self, system: str, messages: Sequence[ChatMessage]) -> LLMResult:
         self.last_result = None
+        self.last_system = system
         result = self.delegate.generate(system, messages)
         self.last_result = result
         return result
@@ -111,6 +113,7 @@ def run_case(case: EvalCase, service: ConversationService, llm: RecordingLLM) ->
                         "expected": expected,
                         "passed": result["escalation"] == expected,
                     }
+        turn["system_prompt"] = llm.last_system
         turn["latency_ms"] = round((time.perf_counter() - start) * 1000)
         turns.append(turn)
         if execution_status == "error":

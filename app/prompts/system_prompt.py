@@ -1,8 +1,10 @@
-"""Builds the system prompt: fixed rules (system_prompt.md) + clinic facts from the config."""
+"""Builds startup rules/clinic facts and adds the relevant saved state for each turn."""
 
+import json
 from pathlib import Path
 
 from app.core.clinic_config import ClinicConfig, Weekday
+from app.schemas.conversation import ConversationState
 
 _TEMPLATE_PATH = Path(__file__).with_name("system_prompt.md")
 _PLACEHOLDER = "{clinic_facts}"
@@ -11,6 +13,17 @@ _PLACEHOLDER = "{clinic_facts}"
 def build_system_prompt(config: ClinicConfig) -> str:
     template = _TEMPLATE_PATH.read_text(encoding="utf-8")
     return template.replace(_PLACEHOLDER, _render_facts(config))
+
+
+def build_turn_prompt(system_prompt: str, state: ConversationState) -> str:
+    """Append a snapshot of the saved stage and service, without duplicating chat history."""
+    context = {
+        "current_workflow_state": {
+            "stage": state.stage,
+            "service_id": state.service_id,
+        }
+    }
+    return f"{system_prompt}\n\n## Current backend workflow state\n{json.dumps(context)}"
 
 
 def _render_facts(config: ClinicConfig) -> str:
