@@ -9,6 +9,7 @@ import pytest
 
 from app.llm.claude import ClaudeClient
 from app.llm.client import ChatMessage, LLMError
+from app.schemas.appointment import ServicePreferenceUpdate
 from app.schemas.assistant import AssistantDecision
 
 _REQUEST = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
@@ -37,9 +38,20 @@ def make_response(
     language="pt",
     raw=None,
     intent="other",
+    service_update=None,
 ):
     body = json.dumps(
-        {"reply": text, "escalation": escalation, "language": language, "intent": intent}
+        {
+            "reply": text,
+            "escalation": escalation,
+            "language": language,
+            "intent": intent,
+            "service_update": (
+                service_update
+                if service_update is not None
+                else {"action": "keep", "service_id": None}
+            ),
+        }
     )
     return SimpleNamespace(
         stop_reason=stop_reason,
@@ -96,6 +108,18 @@ def test_booking_intent_is_returned_from_the_validated_decision():
     assert result.text == "Which day would you prefer?"
 
 
+def test_service_update_is_returned_from_the_validated_decision():
+    sdk = StubSDK(
+        response=make_response(
+            intent="booking", service_update={"action": "set", "service_id": "cleaning"}
+        )
+    )
+
+    result = make_client(sdk).generate(system="s", messages=[ChatMessage("user", "A cleaning")])
+
+    assert result.service_update == ServicePreferenceUpdate(action="set", service_id="cleaning")
+
+
 @pytest.mark.parametrize("stop_reason", ["refusal", "max_tokens", "tool_use", "pause_turn", None])
 def test_unusable_stop_reason_raises(stop_reason):
     sdk = StubSDK(response=make_response(stop_reason=stop_reason))
@@ -136,21 +160,37 @@ def test_structured_escalation_allows_empty_normal_reply(level):
     assert result.escalation == level and result.language == "en"
 
 
+_VALID_DECISION = {
+    "reply": "patient secret",
+    "escalation": "none",
+    "language": "pt",
+    "intent": "other",
+    "service_update": {"action": "keep", "service_id": None},
+}
+
+
 @pytest.mark.parametrize(
-    "raw",
+    "body",
     [
         "patient secret: not JSON",
-        '{"reply":"patient secret"}',
-        '{"reply":"patient secret","escalation":"invalid","language":"pt","intent":"other"}',
-        '{"reply":"patient secret","escalation":"none","language":"fr","intent":"other"}',
-        '{"reply":"   ","escalation":"none","language":"pt","intent":"other"}',
-        '{"reply":"patient secret","escalation":"none","language":"pt",'
-        '"intent":"other","extra":true}',
-        '{"reply":"patient secret","escalation":"none","language":"pt"}',
-        '{"reply":"patient secret","escalation":"none","language":"pt","intent":"book_now"}',
+        {"reply": "patient secret"},
+        _VALID_DECISION | {"escalation": "invalid"},
+        _VALID_DECISION | {"language": "fr"},
+        _VALID_DECISION | {"reply": "   "},
+        _VALID_DECISION | {"extra": True},
+        {k: v for k, v in _VALID_DECISION.items() if k != "intent"},
+        _VALID_DECISION | {"intent": "book_now"},
+        {k: v for k, v in _VALID_DECISION.items() if k != "service_update"},
+        _VALID_DECISION | {"service_update": None},
+        _VALID_DECISION | {"service_update": {"action": "set", "service_id": None}},
+        _VALID_DECISION | {"service_update": {"action": "clear", "service_id": "cleaning"}},
+        _VALID_DECISION | {"service_update": {"action": "keep", "service_id": "cleaning"}},
+        _VALID_DECISION | {"service_update": {"action": "set", "service_id": "INVALID ID"}},
+        _VALID_DECISION | {"service_update": {"action": "invent", "service_id": None}},
     ],
 )
-def test_invalid_decision_is_rejected_without_exposing_content(raw):
+def test_invalid_decision_is_rejected_without_exposing_content(body):
+    raw = body if isinstance(body, str) else json.dumps(body)
     sdk = StubSDK(response=make_response(raw=raw))
     with pytest.raises(LLMError, match="invalid assistant decision") as error:
         make_client(sdk).generate(system="s", messages=[ChatMessage("user", "Hi")])

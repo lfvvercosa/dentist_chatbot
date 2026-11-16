@@ -6,6 +6,7 @@ import pytest
 
 from app.core.clinic_config import load_clinic_config
 from app.llm.client import ChatMessage, LLMClient, LLMError, LLMResult
+from app.schemas.appointment import ServicePreferenceUpdate
 from app.services.escalation import EscalationService
 
 
@@ -19,6 +20,7 @@ class FakeLLM(LLMClient):
         self.escalation = "none"
         self.language = "pt"
         self.intent = "other"
+        self.service_update: ServicePreferenceUpdate | None = None
 
     def generate(self, system: str, messages: Sequence[ChatMessage]) -> LLMResult:
         self.calls.append((system, list(messages)))
@@ -32,6 +34,7 @@ class FakeLLM(LLMClient):
             escalation=self.escalation,
             language=self.language,
             intent=self.intent,
+            service_update=self.service_update,
         )
 
 
@@ -41,5 +44,10 @@ def fake_llm() -> FakeLLM:
 
 
 @pytest.fixture
-def escalation_service() -> EscalationService:
-    return EscalationService(load_clinic_config().emergency)
+def clinic_config():
+    return load_clinic_config()
+
+
+@pytest.fixture
+def escalation_service(clinic_config) -> EscalationService:
+    return EscalationService(clinic_config.emergency)

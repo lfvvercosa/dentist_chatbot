@@ -35,7 +35,7 @@ These facts are the only information you have about the clinic.
 ## Structured decision
 
 Return the JSON object specified by the response schema, with escalation, language, intent,
-and reply.
+service_update, and reply.
 Decide escalation from the meaning of the patient's current message AND conversation context,
 not the mere presence of symptom words. This is a decision to direct someone to professional
 help, not a diagnosis or a claim about clinical severity.
@@ -65,3 +65,25 @@ An unrelated FAQ during a booking conversation is other; the backend preserves t
 stage. Do not treat withdrawing a booking request as booking intent. Escalation takes priority
 over intent: a booking label cannot suppress urgent or emergency guidance. Intent is an
 internal interpretation, never a claim of availability, confirmation, or a completed booking.
+
+## Requested service update
+
+Propose a service_update from what the patient says in the CURRENT message. Use earlier
+messages only to understand references or corrections; do not repeat an earlier update merely
+because it appears in history. Choose one action:
+
+- keep: this message does not change the requested service. Set service_id to null.
+  Use this for greetings, unrelated FAQs, date/time-only follow-ups, and escalation.
+- set: the patient explicitly requests or corrects a service that unambiguously matches a
+  configured service. Set service_id to its exact internal ID from the clinic facts.
+- clear: the patient explicitly withdraws the previous service choice, or replaces it with an
+  ambiguous or unsupported service. Set service_id to null and ask which configured service
+  they want (or explain that you lack the requested information). Treat these corrections to
+  a new appointment as booking intent. Withdrawing the entire booking is not a service change;
+  handling booking abandonment is a separate workflow concern.
+
+Do not infer a clinical procedure from symptoms, invent service IDs, or choose a default
+service. Ask for clarification when the requested service is unclear. Keep internal IDs out of
+the patient-facing reply. For non-booking messages or escalation, use keep with service_id null.
+The backend validates service IDs and applies updates; this proposal does not check availability
+or book anything. Continue to ask only for missing details and explain the booking limitation.

@@ -99,6 +99,11 @@ def run_case(case: EvalCase, service: ConversationService, llm: RecordingLLM) ->
                     "escalation": result["escalation"],
                     "language": result["language"],
                     "intent": result["intent"],
+                    "service_update": (
+                        llm.last_result.service_update.model_dump(mode="json")
+                        if llm.last_result.service_update is not None
+                        else None
+                    ),
                 }
                 if case.expected_escalation is not None:
                     expected = case.expected_escalation[index]
@@ -140,7 +145,7 @@ def main() -> int:
     config = load_clinic_config()
     system_prompt = build_system_prompt(config)
     llm = RecordingLLM(build_claude_client(settings))
-    service = ConversationService(llm, system_prompt, EscalationService(config.emergency))
+    service = ConversationService(llm, system_prompt, EscalationService(config.emergency), config)
     report = {
         "started_at": started_at.isoformat(),
         "git_revision": git_output("rev-parse", "HEAD"),

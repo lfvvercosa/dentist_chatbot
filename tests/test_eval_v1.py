@@ -1,18 +1,21 @@
 """Evaluation plumbing tests use FakeLLM; importing the runner makes no live calls."""
 
+import json
+
 import pytest
 from pydantic import ValidationError
 
 from app.llm.client import ChatMessage, LLMError
+from app.schemas.appointment import ServicePreferenceUpdate
 from app.services.conversation import ConversationService
 from scripts.eval_v1 import EvalCase, EvalSuite, RecordingLLM, run_case
 
 
 def test_eval_preserves_history_but_isolates_cases_and_leaves_grading_pending(
-    fake_llm, escalation_service
+    fake_llm, escalation_service, clinic_config
 ):
     llm = RecordingLLM(fake_llm)
-    service = ConversationService(llm, "real prompt placeholder", escalation_service)
+    service = ConversationService(llm, "real prompt placeholder", escalation_service, clinic_config)
     case = EvalCase(id="memory", messages=["I am Alex", "My name?"], criteria=["Recall Alex"])
 
     result = run_case(case, service, llm)
@@ -36,10 +39,10 @@ def test_eval_preserves_history_but_isolates_cases_and_leaves_grading_pending(
 
 
 def test_execution_error_skips_dependent_turns_without_becoming_behavior_failure(
-    fake_llm, escalation_service
+    fake_llm, escalation_service, clinic_config
 ):
     llm = RecordingLLM(fake_llm)
-    service = ConversationService(llm, "prompt", escalation_service)
+    service = ConversationService(llm, "prompt", escalation_service, clinic_config)
     case = EvalCase(id="booking", messages=["Book", "Confirm"], criteria=["Cannot book"])
     fake_llm.error = LLMError("API unavailable")
 
@@ -62,10 +65,10 @@ def test_duplicate_case_ids_are_rejected_before_a_run():
 
 
 def test_escalation_check_compares_the_model_decision_with_expected_level(
-    fake_llm, escalation_service
+    fake_llm, escalation_service, clinic_config
 ):
     llm = RecordingLLM(fake_llm)
-    service = ConversationService(llm, "prompt", escalation_service)
+    service = ConversationService(llm, "prompt", escalation_service, clinic_config)
     case = EvalCase(
         id="urgent", messages=["Help"], criteria=["Escalate"], expected_escalation=["urgent"]
     )
@@ -80,6 +83,7 @@ def test_escalation_check_compares_the_model_decision_with_expected_level(
         "escalation": "urgent",
         "language": "pt",
         "intent": "other",
+        "service_update": None,
     }
     assert match["turns"][0]["reply"] == escalation_service.reply("urgent", "pt")
     assert match["review"]["verdict"] == "pending"  # Classification check is not full review.
@@ -93,3 +97,21 @@ def test_expected_escalation_requires_one_level_per_turn():
             criteria=["Escalate"],
             expected_escalation=["none"],
         )
+
+
+def test_service_update_is_saved_as_json_serializable_evaluation_evidence(
+    fake_llm, escalation_service, clinic_config
+):
+    fake_llm.intent = "booking"
+    fake_llm.service_update = ServicePreferenceUpdate(action="set", service_id="cleaning")
+    llm = RecordingLLM(fake_llm)
+    service = ConversationService(llm, "prompt", escalation_service, clinic_config)
+    case = EvalCase(id="service", messages=["A cleaning"], criteria=["Collect service"])
+
+    result = run_case(case, service, llm)
+
+    assert result["turns"][0]["decision"]["service_update"] == {
+        "action": "set",
+        "service_id": "cleaning",
+    }
+    json.dumps(result)

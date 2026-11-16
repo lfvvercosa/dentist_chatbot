@@ -70,6 +70,7 @@ class ClaudeClient(LLMClient):
             escalation=decision.escalation,
             language=decision.language,
             intent=decision.intent,
+            service_update=decision.service_update,
         )
 
 

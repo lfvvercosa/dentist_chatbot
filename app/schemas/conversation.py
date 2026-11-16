@@ -4,6 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.core.clinic_config import Slug
 from app.llm.client import ChatMessage
 
 ConversationStage = Literal["chatting", "collecting_preferences"]
@@ -16,3 +17,4 @@ class ConversationState(BaseModel):
 
     messages: list[ChatMessage] = Field(default_factory=list)
     stage: ConversationStage = "chatting"
+    service_id: Slug | None = None

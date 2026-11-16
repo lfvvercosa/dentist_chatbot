@@ -4,6 +4,7 @@ import logging
 import time
 import uuid
 
+from app.core.clinic_config import ClinicConfig
 from app.llm.client import ChatMessage, LLMClient, LLMError
 from app.schemas.conversation import ConversationState
 from app.services.escalation import EscalationService
@@ -17,10 +18,17 @@ class ConversationService:
     State lives in memory and is lost on restart; durable storage is planned for V3.
     """
 
-    def __init__(self, llm: LLMClient, system_prompt: str, escalation: EscalationService):
+    def __init__(
+        self,
+        llm: LLMClient,
+        system_prompt: str,
+        escalation: EscalationService,
+        clinic: ClinicConfig,
+    ):
         self._llm = llm
         self._system_prompt = system_prompt
         self._escalation = escalation
+        self._service_ids = {service.id for service in clinic.services}
         self._states: dict[str, ConversationState] = {}
 
     def handle_message(self, conversation_id: str, message: str) -> str:
@@ -33,6 +41,16 @@ class ConversationService:
         start = time.perf_counter()
         try:
             result = self._llm.generate(self._system_prompt, [*state.messages, user_message])
+            # Validate the proposed service before changing state or saving this turn.
+            service_id = state.service_id
+            if result.escalation == "none" and result.intent == "booking":
+                update = result.service_update
+                if update is not None and update.action == "set":
+                    if update.service_id not in self._service_ids:
+                        raise LLMError("Claude proposed an unknown service ID")
+                    service_id = update.service_id
+                elif update is not None and update.action == "clear":
+                    service_id = None
             guidance = self._escalation.reply(result.escalation, result.language)
             reply = guidance if guidance is not None else result.text
         except LLMError as exc:
@@ -49,8 +67,10 @@ class ConversationService:
         # Escalation takes priority, even when the same message asks for an appointment.
         if result.escalation != "none":
             state.stage = "chatting"
+            state.service_id = None
         elif result.intent == "booking":
             state.stage = "collecting_preferences"
+            state.service_id = service_id
 
         logger.info(
             "chat request_id=%s conversation_id=%s outcome=ok latency_ms=%d model=%s "

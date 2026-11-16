@@ -43,3 +43,8 @@ def test_services_show_dentist_names_not_ids(prompt):
 
     assert line.endswith("Dentists: Dr. Bruno Lima.")
     assert "bruno" not in line  # the raw id is resolved to a name
+
+
+def test_service_extraction_identifiers_come_from_configuration(config, prompt):
+    for service in config.services:
+        assert f"- {service.id}: {service.name}" in prompt

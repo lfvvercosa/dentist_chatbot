@@ -4,13 +4,14 @@ from fastapi.testclient import TestClient
 from app.api.routes import get_conversation_service
 from app.llm.client import ChatMessage, LLMError
 from app.main import app
+from app.schemas.appointment import ServicePreferenceUpdate
 from app.services.conversation import ConversationService
 
 
 @pytest.fixture
-def client(fake_llm, escalation_service):
+def client(fake_llm, escalation_service, clinic_config):
     # One service for the whole test, so history survives across requests.
-    service = ConversationService(fake_llm, "test system prompt", escalation_service)
+    service = ConversationService(fake_llm, "test system prompt", escalation_service, clinic_config)
     app.dependency_overrides[get_conversation_service] = lambda: service
     # Not used as `with TestClient(...)`, so the startup code (which builds the
     # real Claude client) never runs.
@@ -45,6 +46,16 @@ def test_chat_returns_503_when_llm_fails(client, fake_llm):
     assert response.json() == {
         "detail": "The assistant is temporarily unavailable. Please try again."
     }  # internal error details are not leaked to the client
+
+
+def test_unknown_service_proposal_returns_503_without_exposing_the_id(client, fake_llm):
+    fake_llm.intent = "booking"
+    fake_llm.service_update = ServicePreferenceUpdate(action="set", service_id="unknown")
+
+    response = client.post("/chat", json={"conversation_id": "abc-123", "message": "Book"})
+
+    assert response.status_code == 503
+    assert "unknown" not in response.text
 
 
 def test_chat_returns_escalation_text_in_the_same_public_contract(

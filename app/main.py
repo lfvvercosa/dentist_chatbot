@@ -25,7 +25,7 @@ async def lifespan(app: FastAPI):
     config = load_clinic_config()
     system_prompt = build_system_prompt(config)
     app.state.conversation_service = ConversationService(
-        build_claude_client(settings), system_prompt, EscalationService(config.emergency)
+        build_claude_client(settings), system_prompt, EscalationService(config.emergency), config
     )
     yield
 

@@ -40,6 +40,9 @@ def _render_facts(config: ClinicConfig) -> str:
             f"- {s.name} ({s.duration_minutes} min): {s.description} Dentists: {dentists}."
         )
 
+    lines += ["", "Internal service IDs (never show these identifiers to patients):"]
+    lines += [f"- {s.id}: {s.name}" for s in config.services]
+
     if config.policies:
         lines += ["", "Policies:"]
         lines += [f"- {k.replace('_', ' ').capitalize()}: {v}" for k, v in config.policies.items()]

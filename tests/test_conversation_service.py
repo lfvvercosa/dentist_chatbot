@@ -3,12 +3,13 @@ import logging
 import pytest
 
 from app.llm.client import ChatMessage, LLMError
+from app.schemas.appointment import ServicePreferenceUpdate
 from app.services.conversation import ConversationService
 
 
 @pytest.fixture
-def service(fake_llm, escalation_service) -> ConversationService:
-    return ConversationService(fake_llm, "test system prompt", escalation_service)
+def service(fake_llm, escalation_service, clinic_config) -> ConversationService:
+    return ConversationService(fake_llm, "test system prompt", escalation_service, clinic_config)
 
 
 def test_first_message_is_sent_with_the_system_prompt(service, fake_llm):
@@ -175,3 +176,87 @@ def test_failed_interpretation_preserves_stage_and_history(service, fake_llm, in
 
     assert state.stage == previous_stage
     assert state.messages == previous_messages
+
+
+def test_service_choice_can_be_kept_corrected_and_cleared_across_booking_turns(service, fake_llm):
+    fake_llm.intent = "booking"
+    fake_llm.service_update = ServicePreferenceUpdate(action="set", service_id="cleaning")
+    service.handle_message("conv-1", "Quero marcar uma limpeza")
+    assert service._states["conv-1"].service_id == "cleaning"
+
+    fake_llm.service_update = ServicePreferenceUpdate(action="keep", service_id=None)
+    service.handle_message("conv-1", "Amanhã de manhã")
+    assert service._states["conv-1"].service_id == "cleaning"
+
+    fake_llm.service_update = ServicePreferenceUpdate(action="set", service_id="consultation")
+    service.handle_message("conv-1", "Actually, an initial consultation")
+    assert service._states["conv-1"].service_id == "consultation"
+
+    fake_llm.service_update = ServicePreferenceUpdate(action="clear", service_id=None)
+    service.handle_message("conv-1", "Not that service; I'm not sure which one")
+    assert service._states["conv-1"].service_id is None
+    assert service._states["conv-1"].stage == "collecting_preferences"
+
+
+def test_faq_cannot_modify_service_choice_and_other_conversations_start_empty(service, fake_llm):
+    fake_llm.intent = "booking"
+    fake_llm.service_update = ServicePreferenceUpdate(action="set", service_id="cleaning")
+    service.handle_message("conv-1", "A cleaning")
+
+    fake_llm.intent = "other"
+    # Ignore even a conflicting proposal on a non-booking turn.
+    fake_llm.service_update = ServicePreferenceUpdate(action="clear", service_id=None)
+    service.handle_message("conv-1", "What are your hours?")
+    service.handle_message("conv-2", "Hello")
+
+    assert service._states["conv-1"].service_id == "cleaning"
+    assert service._states["conv-2"].service_id is None
+
+
+def test_unknown_service_id_rejects_the_turn_without_changing_state_or_logging_the_id(
+    service, fake_llm, caplog
+):
+    fake_llm.intent = "booking"
+    fake_llm.service_update = ServicePreferenceUpdate(action="set", service_id="cleaning")
+    service.handle_message("conv-1", "A cleaning")
+    state = service._states["conv-1"]
+    previous_messages = list(state.messages)
+    fake_llm.service_update = ServicePreferenceUpdate(action="set", service_id="private_unknown")
+
+    with pytest.raises(LLMError, match="unknown service ID"):
+        service.handle_message("conv-1", "Another service")
+
+    assert state.service_id == "cleaning"
+    assert state.stage == "collecting_preferences"
+    assert state.messages == previous_messages
+    assert "private_unknown" not in caplog.text
+
+
+@pytest.mark.parametrize("level", ["urgent", "emergency"])
+def test_escalation_clears_service_choice_and_ignores_a_proposed_service(
+    service, fake_llm, escalation_service, level
+):
+    fake_llm.intent = "booking"
+    fake_llm.service_update = ServicePreferenceUpdate(action="set", service_id="cleaning")
+    service.handle_message("conv-1", "A cleaning")
+    fake_llm.escalation = level
+    fake_llm.service_update = ServicePreferenceUpdate(action="set", service_id="unknown")
+
+    reply = service.handle_message("conv-1", "An urgent appointment")
+
+    assert reply == escalation_service.reply(level, "pt")
+    assert service._states["conv-1"].service_id is None
+    assert service._states["conv-1"].stage == "chatting"
+
+
+def test_llm_failure_leaves_the_service_choice_unchanged(service, fake_llm):
+    fake_llm.intent = "booking"
+    fake_llm.service_update = ServicePreferenceUpdate(action="set", service_id="cleaning")
+    service.handle_message("conv-1", "A cleaning")
+    fake_llm.service_update = ServicePreferenceUpdate(action="clear", service_id=None)
+    fake_llm.error = LLMError("unavailable")
+
+    with pytest.raises(LLMError):
+        service.handle_message("conv-1", "A correction")
+
+    assert service._states["conv-1"].service_id == "cleaning"
