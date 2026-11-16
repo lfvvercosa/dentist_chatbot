@@ -20,11 +20,16 @@ Streamlit  →  FastAPI /chat  →  ConversationService  →  Claude
 See [docs/v1-scope.md](docs/v1-scope.md) for the completed checklist and
 [docs/v1-decisions.md](docs/v1-decisions.md) for design choices, lessons, and limitations.
 
-V2 development has started; see [docs/v2-scope.md](docs/v2-scope.md). Steps 1.1–1.2 introduce typed,
-in-memory conversation state and booking intent. A validated intent moves the workflow from
+V2 development has started; see [docs/v2-scope.md](docs/v2-scope.md). Steps 1.1–2.1 introduce typed,
+in-memory conversation state, booking intent, and requested-service extraction. Each Claude
+request includes the saved stage and service choice alongside the separate message history.
+A validated intent moves the workflow from
 `chatting` to `collecting_preferences`; FAQs preserve a pending booking stage, while escalation
-takes priority. Preference extraction, calendar access, and booking are not implemented yet.
-It will add scheduling with explicit Python state, structured preference extraction, and
+takes priority and clears the service choice. Claude proposes keeping, setting, or clearing a
+service; Python validates it against clinic configuration before updating state. Dentist/date/time
+extraction, calendar access, and booking are not implemented yet.
+
+V2 will add the remaining preference extraction and scheduling workflow, followed by
 CalendarService (mock first, then Google test calendars), including confirmation, availability
 rechecking, verified booking, and duplicate protection. V3 will first migrate the working flow
 to LangGraph, then add PostgreSQL persistence, then multi-agent orchestration. WhatsApp and

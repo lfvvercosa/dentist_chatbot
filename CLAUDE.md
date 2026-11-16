@@ -7,7 +7,7 @@ Guidance for Claude when working in this repository.
 Dental clinic AI assistant for a **fictional** clinic ("Big Smile Clinic"), built as four incremental versions in **one repo**, each tagged (`v1.0` … `v4.0`) and runnable on its own.
 
 - **Read first:** `documents/01_PROJECT_CONTEXT.md`, `documents/02_FOUR_VERSION_ROADMAP.md`, `documents/03_ARCHITECTURE_AND_LLM_HANDOFF.md`.
-- **Current release:** V1 is complete at `v1.0`; see `docs/v1-scope.md`. **Current development:** V2 steps 1.1–1.2 add typed in-memory state and validated booking intent driving `chatting`/`collecting_preferences` stages. Preference extraction, calendar access, and booking are not implemented yet. See `docs/v2-scope.md` and inspect the code before proposing work; never assume a planned feature exists.
+- **Current release:** V1 is complete at `v1.0`; see `docs/v1-scope.md`. **Current development:** V2 steps 1.1, 1.2, and 2.1 add typed in-memory state, booking intent, and configured service extraction with keep/set/clear actions. Dentist/date/time extraction, calendar access, and booking are not implemented yet. See `docs/v2-scope.md` and inspect the code before proposing work; never assume a planned feature exists.
 - V2 uses explicit typed conversation state and ordinary Python scheduling functions. LangGraph, PostgreSQL, and multi-agent orchestration are V3; introduce them in that order. WhatsApp, Redis, Celery, Docker and AWS are V4.
 
 ## How to work with the developer
@@ -34,6 +34,7 @@ Streamlit → FastAPI route → ConversationService → LLMClient → Claude
 | `app/core/settings.py` | Settings from env vars / `.env` (`pydantic-settings`) |
 | `app/schemas/` | API contract (`ChatRequest`, `ChatResponse`) |
 | `app/schemas/conversation.py` | V2 internal conversation history and workflow stage |
+| `app/schemas/appointment.py` | V2 structured service-preference updates; configured IDs are checked by ConversationService |
 | `app/api/routes.py` | Thin routes; service injected with `Depends()` |
 | `app/services/` | `ConversationService`: channel-independent entry point for a message |
 | `app/services/escalation.py` | Selects configured guidance from a validated LLM decision; never matches symptom keywords |
@@ -48,6 +49,7 @@ Streamlit → FastAPI route → ConversationService → LLMClient → Claude
 - **The LLM proposes, the backend executes.** Never report a booking or availability that code hasn't verified. Consequential actions require explicit patient confirmation enforced in code, not only in the prompt.
 - **Validate at the boundary** with Pydantic: YAML, HTTP bodies, and later LLM structured output.
 - **Server owns conversation history**, keyed by `conversation_id`; clients send only the id and the new message. History is stored as provider-neutral text (`ChatMessage`).
+- Each LLM request includes a fresh JSON snapshot of saved `stage` and `service_id` in its system prompt; message history stays separate. Serialize only these relevant state fields, and keep state validation/updates in Python.
 - **Clinic facts go into the system prompt** (context stuffing). No RAG or vector DB.
 - **No LangChain in V1.** Use the official `anthropic` SDK behind `LLMClient`.
 - **No LangGraph in V2.** Implement the scheduling flow in Python first. At the start of V3, migrate it to LangGraph while preserving behavior, then add PostgreSQL persistence, then multi-agent orchestration. Booking safeguards remain backend rules in both implementations.
