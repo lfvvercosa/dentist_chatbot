@@ -1,35 +1,30 @@
 # V2 — Scheduling Scope and Acceptance Checklist
 
-**Status: revised draft for discussion, 2026-11-16.** This revision follows the current request
-to include LangGraph in V2. The previous plan put a Python scheduling workflow in V2 and
-LangGraph in V3. That earlier decision remains recorded in the roadmap, project context,
-architecture handoff, README, CLAUDE.md, and V1 decisions; those documents have not been
-rewritten as part of this scope-only step. Reconcile their forward-looking guidance after
-discussing this revision and before application implementation. Preserve historical V1 records.
+**Status: V2 in progress, not complete.** Confirmed on 2026-11-16: implement scheduling in
+ordinary Python in V2; introduce LangGraph at the start of V3, followed by PostgreSQL and
+multi-agent orchestration. This restores the sequence in the roadmap, project context,
+architecture handoff, README, CLAUDE.md, and V1 decisions. It supersedes the LangGraph-in-V2
+proposal recorded in `c2708cc`; that proposal did not add any application functionality.
 
-### Repository baseline inspected for this draft
+### Implementation progress
 
-This snapshot records the initial scope inspection, before steps 2.1 and its per-turn state
-improvement were committed. They are now recorded in `6ff4ed3` and `43eb391` respectively.
+- **Complete:** typed in-memory conversation state (step 1.1), validated booking intent and
+  workflow stages (step 1.2), and configured service extraction with keep/set/clear updates
+  (step 2.1, `6ff4ed3`). Each Claude request receives the saved stage/service explicitly
+  (`43eb391`). The latest code verification passed 96 offline tests and Ruff checks.
+- **Partial:** structured appointment preferences. Only the service is extracted; dentist,
+  date, time, compatibility, and completeness checks remain to be implemented.
+- **Not started:** CalendarService, availability, slot selection, confirmation, booking,
+  verification, duplicate protection, Google Calendar integration, and V2 release validation.
+- **Next small implementation step:** extract a dentist preference and validate compatibility
+  with the selected service, preserving the existing API and booking limitation.
 
-- V1 remains tagged `v1.0` at `50cc705`, with package/API versions `1.0.0` and 64 release tests.
-- The working repository is already beyond V1: `main` is at `163eafc`, three commits ahead
-  of the local `origin/main` reference. The commits plan V2 and implement steps 1.1 and 1.2.
-  Remote references have not been refreshed; this inspection makes no claim about live GitHub state.
-- Existing uncommitted work implements step 2.1 and its explicit per-turn state snapshot.
-  ConversationService stores typed history, workflow stage, and a configured service choice
-  extracted through validated updates. Each Claude request includes the saved stage/service.
-- The current working tree passes **96 offline tests**, Ruff lint, and formatting checks.
-  This is separate from the 64-test V1 release baseline.
-- LangGraph, dentist/date/time extraction, calendar access, and booking are not implemented.
-  The remaining scope below describes proposed capabilities.
-
-Retain the existing committed and uncommitted work. This revision changes only this scope
-document; it does not reset the repository, implement application code, or authorize Git writes.
+V1 remains the completed release tagged `v1.0` at `50cc705`, with package/API versions
+`1.0.0` and 64 release tests. Committing V2 work does not complete or release V2.
 
 ## Goal
 
-Retain the V1 Streamlit interface and FastAPI chat contract while adding a single LangGraph
+Retain the V1 Streamlit interface and FastAPI chat contract while adding an explicit Python
 scheduling workflow that can book a new appointment through a CalendarService. Start with
 an in-memory mock, then demonstrate the same journey against dedicated Google Calendar test calendars.
 
@@ -56,8 +51,8 @@ V2 continues in this codebase on `main`. The completed V1 snapshot remains at `v
 | Topic | V2 proposal | Reason |
 |---|---|---|
 | Patient journey | Create new, single appointments; one active booking draft per conversation | Keeps the first workflow understandable |
-| Orchestration | One LangGraph workflow with ordinary Python nodes and conditional edges | Make the scheduling stages and allowed routes explicit while learning graph orchestration |
-| State | Typed graph state with an in-memory checkpointer; `thread_id = conversation_id` | Continue a conversation across requests while leaving durable persistence for V3 |
+| Orchestration | Ordinary Python functions with explicit stages and allowed transitions; no LangGraph | Learn the scheduling rules before introducing a workflow framework |
+| State | Typed, in-memory conversation state keyed by `conversation_id` | Track transactional fields explicitly before graph migration and durable storage in V3 |
 | Extraction | Validated intent and appointment preferences, including corrections and missing details | Avoid repeatedly inferring transactional state from chat text |
 | Calendar | One CalendarService contract; mock first, Google adapter afterward | Separate workflow rules from provider behavior |
 | Scheduling facts | Existing configured services, eligible dentists, durations, hours, and timezone | Prevent invented operational rules |
@@ -70,28 +65,22 @@ The calendar layout and generated-reference choice are recommendations to review
 their implementation. A calendar event is the V2 booking record; in-memory conversation state
 records workflow progress and is not a durable appointment database.
 
-## Why LangGraph in V2
+## Why Python first, LangGraph in V3
 
-The learning objective is to express a multi-turn scheduling journey as shared state, nodes,
-and conditional edges. A node is an ordinary Python function that reads state and returns
-updates; an edge determines the next step. Most nodes perform deterministic validation or
-calendar I/O. Start with one node that calls Claude for interpretation, retaining LLMClient
-and the official SDK. Several graph nodes do not imply several autonomous agents.
+V2's bounded scheduling journey can be expressed with typed state, ordinary functions, and
+conditional transitions. Learn and test preference collection, slot search, confirmation,
+availability rechecking, verification, and duplicate protection in that form first. Those
+booking rules must be implemented with or without a workflow framework.
 
-Ordinary Python orchestration remains a valid, smaller alternative and explains the work
-already present. For this revised scope, move that existing slice into a graph before adding
-more scheduling capabilities. Compare the request flow before and after that small migration.
-Confirmation, availability rechecking, verification, and duplicate protection remain backend
-rules; adopting LangGraph does not supply them automatically.
-
-V3 adds PostgreSQL checkpoints and business records, restart recovery, and then multi-agent
-orchestration. A graph checkpoint records workflow progress; the calendar event remains the
-V2 booking record. No database, hosted graph service, or autonomous tool loop is needed in V2.
+At the start of V3, migrate the working flow into LangGraph while preserving its behavior
+and tests. Compare the Python and graph implementations before adding PostgreSQL checkpoints,
+business records, and restart recovery, then introduce multi-agent orchestration. Keep each
+learning step separate. V2 has no graph checkpoints, database, or autonomous tool loop.
 
 ## Request flow and responsibilities
 
 ```text
-Streamlit -> POST /chat -> ConversationService -> LangGraph scheduling workflow
+Streamlit -> POST /chat -> ConversationService -> Python scheduling workflow
                                                   |
                             LLMClient -> Claude -> validated interpretation
                                                   |
@@ -115,27 +104,21 @@ Start by extending the existing combined interpretation/escalation response rath
 adding a separate classifier call. The adapter's internal schema can evolve without adding
 fields to the public chat API. Keep SDK-specific objects inside the adapter.
 
-ConversationService invokes the compiled graph with `thread_id = conversation_id`. The
-graph's in-memory checkpointer becomes the single owner of accepted conversation history
-and scheduling state, replacing the current `_states` dictionary rather than maintaining
-two independent copies. Build the graph/checkpointer once at startup. Keep per-turn input
-and unvalidated proposals separate from accepted preferences and messages.
-
-Each HTTP request runs a bounded portion of the graph and returns a reply. When more patient
-input is needed, save the pending stage and end the graph invocation. The next message
-starts another invocation on the same thread and routes according to that saved stage.
-A request does not remain open while waiting for confirmation. Explicit stages are enough
-for this first journey; LangGraph interrupts are optional later learning, not a V2 requirement.
+ConversationService keeps one typed state per conversation in its `_states` dictionary,
+containing accepted messages and scheduling fields. Evolve that state without duplicating
+histories. Keep per-turn input and unvalidated proposals separate from accepted preferences.
+Each HTTP request runs a bounded portion of the workflow and returns a reply. When more
+patient input is needed, save the pending stage and end the request; continue from the saved
+stage on the next message. A request does not remain open while waiting for confirmation.
 
 Failed interpretation must preserve accepted history and preferences, as it does today.
-Intermediate graph checkpoints are not a transaction rollback: validate proposals before
-publishing accepted state, and test failure followed by the next request. Once calendar
-writes exist, preserve their operation/outcome even if a later step fails. Replaying graph
-execution must never erase a write attempt or bypass duplicate protection.
+Validate proposals before applying state updates, and test failure followed by the next
+request. Once calendar writes exist, preserve their operation/outcome even if a later step
+fails. Retrying the workflow must never erase a write attempt or bypass duplicate protection.
 
-Calendar methods are tools: ordinary typed functions called by workflow nodes after
+Calendar methods are tools: ordinary typed functions called by workflow functions after
 validation. Start with controlled dispatch from structured proposals, without an autonomous
-tool loop or a second agent. Graph edges route between Python nodes; CalendarService performs I/O.
+tool loop or a second agent. Python code manages transitions; CalendarService performs I/O.
 
 Conceptual routes across turns, not a fixed implementation schema:
 
@@ -302,8 +285,8 @@ returning success. Deterministic scheduling code applies clinic rules in both mo
 - Generate a server-owned operation reference for the exact booking proposal before writing.
   Repeated confirmation, request retries, or workflow retries reuse that reference. They must
   not generate another event for the same operation.
-- Calendar write nodes must be safe if invoked again with the same operation. An in-memory
-  checkpoint is not proof that an external write happened exactly once; reconcile provider
+- Calendar write functions must be safe if invoked again with the same operation. In-memory
+  workflow state is not proof that an external write happened exactly once; reconcile provider
   state before any retry after an uncertain outcome.
 - Keep in-progress, verified, definitely failed, and unknown outcomes distinct. A timeout
   after submission is an unknown outcome, not evidence that creation failed.
@@ -341,7 +324,7 @@ remove only events created by a test run. Mock mode remains runnable without Goo
 
 ## Out of scope
 
-- V3: PostgreSQL, durable checkpoints/business records, patient
+- V3: LangGraph migration, PostgreSQL, durable checkpoints/business records, patient
   verification, appointment lookup for returning patients, rescheduling/cancellation,
   and multi-agent orchestration.
   Internal event retrieval for V2 verification is not a patient-facing lookup feature.
@@ -355,19 +338,16 @@ remove only events created by a test run. Mock mode remains runnable without Goo
 Each item is a milestone to split further when necessary. Implement one understandable
 step, explain its request/data flow, verify it, and stop for review.
 
-0. Discuss this revised draft, then align forward-looking documentation with LangGraph in V2.
-   Calendar layout and patient-reference proposals remain for review before their own steps.
-1. Move the existing conversation slice into a minimal LangGraph workflow behind
-   ConversationService. Keep typed state, messages, validated intent, keep/set/clear service
-   updates, per-turn state context, FAQ behavior, and escalation. Add an in-memory checkpointer
-   with `thread_id = conversation_id`, replacing the independent `_states` store. Split this
-   into reviewable slices if necessary; introduce no new scheduling capability during migration.
-   Demonstrate the same booking → FAQ → escalation conversation before and after, plus
-   isolation and a failed turn followed by a successful turn. No calendar calls or writes.
-   **Existing foundation retained:** committed steps 1.1, 1.2, and 2.1 are
-   described above; none of them already uses LangGraph.
-2. Extend structured extraction one field at a time: dentist preference and compatibility,
-   date/date range, then time/time window. Preserve the existing keep/set/clear semantics,
+0. **Sequence confirmed:** Python scheduling in V2; LangGraph, PostgreSQL, and multi-agent
+   orchestration in V3, in that order. Calendar layout and patient-reference proposals remain
+   for review before their own implementation steps.
+1. **Complete:** introduce typed in-memory conversation state (step 1.1) and explicit Python
+   workflow stages driven by validated booking intent (step 1.2), behind ConversationService.
+   Existing tests verify history, isolation, FAQ behavior, escalation, and failed-turn handling.
+2. **In progress:** structured preference extraction, validation, corrections, and missing-detail
+   questions. Step 2.1 extracts and validates the service; its follow-up supplies saved stage
+   and service explicitly to Claude. Next, add dentist preference and compatibility, then
+   date/date range and time/time window, one field at a time. Preserve keep/set/clear semantics,
    including the difference between an unspecified dentist and an explicit "any dentist."
    Add deterministic completeness checks and missing-detail questions in separate slices.
 3. Add mock CalendarService reads and slot calculation; demonstrate real mock-backed offers.
@@ -385,12 +365,10 @@ No commits, pushes, or release tags are authorized by this plan.
 
 - [ ] Streamlit and the existing chat/health API remain usable; FAQs, language, conversation
   isolation, new-conversation behavior, and configured escalation continue working.
-- [ ] A single LangGraph workflow behind ConversationService retains typed conversation state
-  between turns using an in-memory checkpointer and `thread_id = conversation_id`, without a
-  duplicate history store. Restart limitations are demonstrated and documented.
-- [ ] Graph migration preserves existing service updates, state context, FAQ/escalation behavior,
-  isolation, and accepted-state preservation after failed turns. No failed proposal becomes
-  accepted state because an intermediate checkpoint exists.
+- [ ] Typed conversation state persists between turns in the same process without LangGraph
+  or graph checkpoints; restart limitations are demonstrated and documented.
+- [ ] Python workflow transitions preserve service updates, state context, FAQ/escalation behavior,
+  isolation, and accepted-state preservation after failed turns.
 - [ ] Preferences are extracted and corrected in Portuguese and English; ambiguous dates,
   missing details, unsupported services, and incompatible dentists get clarification.
 - [ ] Only future, non-overlapping slots fitting configured hours, duration, and dentist
@@ -413,15 +391,9 @@ No commits, pushes, or release tags are authorized by this plan.
 
 ## References
 
-Earlier project direction: [four-version roadmap](../documents/02_FOUR_VERSION_ROADMAP.md) and
-[V1 handoff](v1-decisions.md#v2-handoff). Their Python-V2/LangGraph-V3 planning revision predates
-this draft's requested LangGraph-V2 direction; reconcile future guidance after discussion.
-
-Framework mechanics checked for this revision: [LangGraph Graph API](https://docs.langchain.com/oss/python/langgraph/graph-api)
-defines state, Python nodes, and conditional edges; [persistence](https://docs.langchain.com/oss/python/langgraph/persistence)
-and [InMemorySaver](https://reference.langchain.com/python/langgraph.checkpoint/memory/InMemorySaver)
-describe thread-scoped checkpointing and the in-memory implementation. The scheduling
-stages, per-turn boundaries, and booking guards above are this project's design choices.
+Agreed project direction: [four-version roadmap](../documents/02_FOUR_VERSION_ROADMAP.md) and
+[V1 handoff](v1-decisions.md#v2-handoff). V2 uses Python scheduling; V3 introduces LangGraph
+before durable PostgreSQL state and multi-agent orchestration.
 
 Provider mechanics checked while drafting: [Google free/busy](https://developers.google.com/workspace/calendar/api/v3/reference/freebusy/query),
 [event creation and custom IDs](https://developers.google.com/workspace/calendar/api/guides/create-events),
