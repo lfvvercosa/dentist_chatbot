@@ -16,11 +16,12 @@ def build_system_prompt(config: ClinicConfig) -> str:
 
 
 def build_turn_prompt(system_prompt: str, state: ConversationState) -> str:
-    """Append a snapshot of the saved stage and service, without duplicating chat history."""
+    """Append saved scheduling preferences, without duplicating chat history."""
     context = {
         "current_workflow_state": {
             "stage": state.stage,
             "service_id": state.service_id,
+            "dentist_preference": state.dentist_preference.model_dump(mode="json"),
         }
     }
     return f"{system_prompt}\n\n## Current backend workflow state\n{json.dumps(context)}"
@@ -55,6 +56,9 @@ def _render_facts(config: ClinicConfig) -> str:
 
     lines += ["", "Internal service IDs (never show these identifiers to patients):"]
     lines += [f"- {s.id}: {s.name}" for s in config.services]
+
+    lines += ["", "Internal dentist IDs (never show these identifiers to patients):"]
+    lines += [f"- {d.id}: {d.name}" for d in config.dentists]
 
     if config.policies:
         lines += ["", "Policies:"]

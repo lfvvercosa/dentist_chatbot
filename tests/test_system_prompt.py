@@ -48,3 +48,8 @@ def test_services_show_dentist_names_not_ids(prompt):
 def test_service_extraction_identifiers_come_from_configuration(config, prompt):
     for service in config.services:
         assert f"- {service.id}: {service.name}" in prompt
+
+
+def test_dentist_extraction_identifiers_come_from_configuration(config, prompt):
+    for dentist in config.dentists:
+        assert f"- {dentist.id}: {dentist.name}" in prompt

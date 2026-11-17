@@ -20,7 +20,11 @@ def test_first_message_is_sent_with_the_system_prompt(service, fake_llm):
     assert len(fake_llm.calls) == 1
     system, messages = fake_llm.calls[0]
     assert system.startswith("test system prompt\n\n")
-    assert _sent_state(fake_llm, 0) == {"stage": "chatting", "service_id": None}
+    assert _sent_state(fake_llm, 0) == {
+        "stage": "chatting",
+        "service_id": None,
+        "dentist_preference": {"kind": "unspecified", "dentist_id": None},
+    }
     assert messages == [ChatMessage("user", "hello")]
 
 
@@ -287,10 +291,26 @@ def test_each_request_receives_saved_state_before_its_own_update(service, fake_l
     service.handle_message("conv-1", "Which services do you offer?")
 
     assert [_sent_state(fake_llm, i) for i in range(4)] == [
-        {"stage": "chatting", "service_id": None},
-        {"stage": "collecting_preferences", "service_id": "cleaning"},
-        {"stage": "collecting_preferences", "service_id": "consultation"},
-        {"stage": "collecting_preferences", "service_id": None},
+        {
+            "stage": "chatting",
+            "service_id": None,
+            "dentist_preference": {"kind": "unspecified", "dentist_id": None},
+        },
+        {
+            "stage": "collecting_preferences",
+            "service_id": "cleaning",
+            "dentist_preference": {"kind": "unspecified", "dentist_id": None},
+        },
+        {
+            "stage": "collecting_preferences",
+            "service_id": "consultation",
+            "dentist_preference": {"kind": "unspecified", "dentist_id": None},
+        },
+        {
+            "stage": "collecting_preferences",
+            "service_id": None,
+            "dentist_preference": {"kind": "unspecified", "dentist_id": None},
+        },
     ]
 
 
@@ -304,8 +324,16 @@ def test_context_is_scoped_to_the_conversation_and_does_not_promote_patient_text
     service.handle_message("conv-1", "Which service did I choose?")
     service.handle_message("conv-2", "Hello")
 
-    assert _sent_state(fake_llm, 1) == {"stage": "collecting_preferences", "service_id": "cleaning"}
-    assert _sent_state(fake_llm, 2) == {"stage": "chatting", "service_id": None}
+    assert _sent_state(fake_llm, 1) == {
+        "stage": "collecting_preferences",
+        "service_id": "cleaning",
+        "dentist_preference": {"kind": "unspecified", "dentist_id": None},
+    }
+    assert _sent_state(fake_llm, 2) == {
+        "stage": "chatting",
+        "service_id": None,
+        "dentist_preference": {"kind": "unspecified", "dentist_id": None},
+    }
     for system, _ in fake_llm.calls:
         assert patient_text not in system
     assert fake_llm.calls[1][1][0] == ChatMessage("user", patient_text)
@@ -322,7 +350,11 @@ def test_rejected_update_does_not_change_context_or_history_on_the_next_turn(ser
     fake_llm.service_update = ServicePreferenceUpdate(action="keep", service_id=None)
     service.handle_message("conv-1", "Try again")
 
-    assert _sent_state(fake_llm, 2) == {"stage": "collecting_preferences", "service_id": "cleaning"}
+    assert _sent_state(fake_llm, 2) == {
+        "stage": "collecting_preferences",
+        "service_id": "cleaning",
+        "dentist_preference": {"kind": "unspecified", "dentist_id": None},
+    }
     assert ChatMessage("user", "Rejected message") not in fake_llm.calls[2][1]
 
 
@@ -337,4 +369,8 @@ def test_next_request_sees_state_reset_by_escalation(service, fake_llm):
     fake_llm.service_update = ServicePreferenceUpdate(action="keep", service_id=None)
     service.handle_message("conv-1", "Follow-up")
 
-    assert _sent_state(fake_llm, 2) == {"stage": "chatting", "service_id": None}
+    assert _sent_state(fake_llm, 2) == {
+        "stage": "chatting",
+        "service_id": None,
+        "dentist_preference": {"kind": "unspecified", "dentist_id": None},
+    }

@@ -6,7 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.llm.client import ChatMessage, LLMError
-from app.schemas.appointment import ServicePreferenceUpdate
+from app.schemas.appointment import DentistPreferenceUpdate, ServicePreferenceUpdate
 from app.services.conversation import ConversationService
 from scripts.eval_v1 import EvalCase, EvalSuite, RecordingLLM, run_case
 
@@ -85,6 +85,7 @@ def test_escalation_check_compares_the_model_decision_with_expected_level(
         "language": "pt",
         "intent": "other",
         "service_update": None,
+        "dentist_update": None,
     }
     assert match["turns"][0]["reply"] == escalation_service.reply("urgent", "pt")
     assert match["review"]["verdict"] == "pending"  # Classification check is not full review.
@@ -118,6 +119,26 @@ def test_service_update_is_saved_as_json_serializable_evaluation_evidence(
     json.dumps(result)
 
 
+@pytest.mark.parametrize("action", ["set", "any"])
+def test_dentist_proposal_is_saved_as_json_serializable_evaluation_evidence(
+    fake_llm, escalation_service, clinic_config, action
+):
+    dentist_id = "ana" if action == "set" else None
+    fake_llm.intent = "booking"
+    fake_llm.dentist_update = DentistPreferenceUpdate(action=action, dentist_id=dentist_id)
+    llm = RecordingLLM(fake_llm)
+    service = ConversationService(llm, "prompt", escalation_service, clinic_config)
+    case = EvalCase(id="dentist", messages=["My preference"], criteria=["Collect dentist"])
+
+    result = run_case(case, service, llm)
+
+    assert result["turns"][0]["decision"]["dentist_update"] == {
+        "action": action,
+        "dentist_id": dentist_id,
+    }
+    json.dumps(result)
+
+
 def test_evaluation_saves_the_exact_prompt_with_state_for_each_turn(
     fake_llm, escalation_service, clinic_config
 ):
@@ -134,6 +155,14 @@ def test_evaluation_saves_the_exact_prompt_with_state_for_each_turn(
     assert [
         json.loads(prompt.rsplit("\n", 1)[1])["current_workflow_state"] for prompt in prompts
     ] == [
-        {"stage": "chatting", "service_id": None},
-        {"stage": "collecting_preferences", "service_id": "cleaning"},
+        {
+            "stage": "chatting",
+            "service_id": None,
+            "dentist_preference": {"kind": "unspecified", "dentist_id": None},
+        },
+        {
+            "stage": "collecting_preferences",
+            "service_id": "cleaning",
+            "dentist_preference": {"kind": "unspecified", "dentist_id": None},
+        },
     ]

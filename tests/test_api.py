@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 from app.api.routes import get_conversation_service
 from app.llm.client import ChatMessage, LLMError
 from app.main import app
-from app.schemas.appointment import ServicePreferenceUpdate
+from app.schemas.appointment import DentistPreferenceUpdate, ServicePreferenceUpdate
 from app.services.conversation import ConversationService
 
 
@@ -56,6 +56,30 @@ def test_unknown_service_proposal_returns_503_without_exposing_the_id(client, fa
 
     assert response.status_code == 503
     assert "unknown" not in response.text
+
+
+def test_unknown_dentist_proposal_returns_503_without_exposing_the_id(client, fake_llm):
+    fake_llm.intent = "booking"
+    fake_llm.dentist_update = DentistPreferenceUpdate(action="set", dentist_id="private_unknown")
+
+    response = client.post("/chat", json={"conversation_id": "abc-123", "message": "Book"})
+
+    assert response.status_code == 503
+    assert "private_unknown" not in response.text
+
+
+def test_incompatible_pair_is_a_clarification_in_the_same_chat_contract(client, fake_llm):
+    fake_llm.intent = "booking"
+    fake_llm.service_update = ServicePreferenceUpdate(action="set", service_id="cleaning")
+    fake_llm.dentist_update = DentistPreferenceUpdate(action="set", dentist_id="bruno")
+
+    response = client.post(
+        "/chat", json={"conversation_id": "abc-123", "message": "Limpeza com Bruno"}
+    )
+
+    assert response.status_code == 200
+    assert set(response.json()) == {"conversation_id", "reply"}
+    assert "Dr. Ana Souza" in response.json()["reply"]
 
 
 def test_chat_returns_escalation_text_in_the_same_public_contract(

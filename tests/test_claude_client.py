@@ -9,7 +9,7 @@ import pytest
 
 from app.llm.claude import ClaudeClient
 from app.llm.client import ChatMessage, LLMError
-from app.schemas.appointment import ServicePreferenceUpdate
+from app.schemas.appointment import DentistPreferenceUpdate, ServicePreferenceUpdate
 from app.schemas.assistant import AssistantDecision
 
 _REQUEST = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
@@ -39,6 +39,7 @@ def make_response(
     raw=None,
     intent="other",
     service_update=None,
+    dentist_update=None,
 ):
     body = json.dumps(
         {
@@ -50,6 +51,11 @@ def make_response(
                 service_update
                 if service_update is not None
                 else {"action": "keep", "service_id": None}
+            ),
+            "dentist_update": (
+                dentist_update
+                if dentist_update is not None
+                else {"action": "keep", "dentist_id": None}
             ),
         }
     )
@@ -120,6 +126,21 @@ def test_service_update_is_returned_from_the_validated_decision():
     assert result.service_update == ServicePreferenceUpdate(action="set", service_id="cleaning")
 
 
+@pytest.mark.parametrize(
+    ("action", "dentist_id"), [("set", "ana"), ("keep", None), ("clear", None), ("any", None)]
+)
+def test_dentist_update_is_returned_from_the_validated_decision(action, dentist_id):
+    sdk = StubSDK(
+        response=make_response(
+            intent="booking", dentist_update={"action": action, "dentist_id": dentist_id}
+        )
+    )
+
+    result = make_client(sdk).generate(system="s", messages=[ChatMessage("user", "My preference")])
+
+    assert result.dentist_update == DentistPreferenceUpdate(action=action, dentist_id=dentist_id)
+
+
 @pytest.mark.parametrize("stop_reason", ["refusal", "max_tokens", "tool_use", "pause_turn", None])
 def test_unusable_stop_reason_raises(stop_reason):
     sdk = StubSDK(response=make_response(stop_reason=stop_reason))
@@ -166,6 +187,7 @@ _VALID_DECISION = {
     "language": "pt",
     "intent": "other",
     "service_update": {"action": "keep", "service_id": None},
+    "dentist_update": {"action": "keep", "dentist_id": None},
 }
 
 
@@ -187,6 +209,15 @@ _VALID_DECISION = {
         _VALID_DECISION | {"service_update": {"action": "keep", "service_id": "cleaning"}},
         _VALID_DECISION | {"service_update": {"action": "set", "service_id": "INVALID ID"}},
         _VALID_DECISION | {"service_update": {"action": "invent", "service_id": None}},
+        {k: v for k, v in _VALID_DECISION.items() if k != "dentist_update"},
+        _VALID_DECISION | {"dentist_update": None},
+        _VALID_DECISION | {"dentist_update": {"action": "set", "dentist_id": None}},
+        _VALID_DECISION | {"dentist_update": {"action": "any", "dentist_id": "ana"}},
+        _VALID_DECISION | {"dentist_update": {"action": "keep", "dentist_id": "ana"}},
+        _VALID_DECISION | {"dentist_update": {"action": "clear", "dentist_id": "ana"}},
+        _VALID_DECISION | {"dentist_update": {"action": "set", "dentist_id": "INVALID ID"}},
+        _VALID_DECISION | {"dentist_update": {"action": "invent", "dentist_id": None}},
+        _VALID_DECISION | {"dentist_update": {"action": "any", "dentist_id": None, "extra": True}},
     ],
 )
 def test_invalid_decision_is_rejected_without_exposing_content(body):

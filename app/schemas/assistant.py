@@ -3,7 +3,7 @@
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.llm.client import ConversationIntent, EscalationLevel, ResponseLanguage
-from app.schemas.appointment import ServicePreferenceUpdate
+from app.schemas.appointment import DentistPreferenceUpdate, ServicePreferenceUpdate
 
 
 class AssistantDecision(BaseModel):
@@ -16,6 +16,9 @@ class AssistantDecision(BaseModel):
     )
     service_update: ServicePreferenceUpdate = Field(
         description="Change to the requested service in the current patient message"
+    )
+    dentist_update: DentistPreferenceUpdate = Field(
+        description="Change to the dentist preference in the current patient message"
     )
     reply: str = Field(description="Normal reply for none; empty string when escalating")
 

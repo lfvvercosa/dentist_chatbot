@@ -5,7 +5,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
 
-from app.schemas.appointment import ServicePreferenceUpdate
+from app.schemas.appointment import DentistPreferenceUpdate, ServicePreferenceUpdate
 
 EscalationLevel = Literal["none", "urgent", "emergency"]
 ResponseLanguage = Literal["pt", "en"]
@@ -28,6 +28,7 @@ class LLMResult:
     language: ResponseLanguage = "pt"
     intent: ConversationIntent = "other"
     service_update: ServicePreferenceUpdate | None = None
+    dentist_update: DentistPreferenceUpdate | None = None
 
 
 class LLMError(Exception):
