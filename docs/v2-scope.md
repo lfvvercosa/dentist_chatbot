@@ -11,13 +11,16 @@ proposal recorded in `c2708cc`; that proposal did not add any application functi
 - **Complete:** typed in-memory conversation state (step 1.1), validated booking intent and
   workflow stages (step 1.2), and configured service extraction with keep/set/clear updates
   (step 2.1, `6ff4ed3`). Each Claude request receives the saved stage/service explicitly
-  (`43eb391`). The latest code verification passed 96 offline tests and Ruff checks.
-- **Partial:** structured appointment preferences. Only the service is extracted; dentist,
-  date, time, compatibility, and completeness checks remain to be implemented.
+  (`43eb391`). Step 2.2 (`eb406a9`) adds dentist preference extraction and configured compatibility checks,
+  including corrections and the distinction between unanswered and any eligible dentist.
+  The latest code verification passed 132 offline tests and Ruff checks.
+- **Partial:** structured appointment preferences. Service and dentist are extracted; date,
+  time, and completeness checks remain to be implemented.
 - **Not started:** CalendarService, availability, slot selection, confirmation, booking,
   verification, duplicate protection, Google Calendar integration, and V2 release validation.
-- **Next small implementation step:** extract a dentist preference and validate compatibility
-  with the selected service, preserving the existing API and booking limitation.
+- **Next small implementation step:** date/date-range extraction, with explicit current-time
+  context in the clinic timezone and clarification of ambiguous requests. Time preferences
+  follow separately; the existing API and booking limitation remain.
 
 V1 remains the completed release tagged `v1.0` at `50cc705`, with package/API versions
 `1.0.0` and 64 release tests. Committing V2 work does not complete or release V2.
@@ -210,7 +213,7 @@ Streamlit interface, and booking limitation remain unchanged.
 
 #### Step 2.1 improvement: explicit state in the LLM request
 
-`build_turn_prompt()` in `app/prompts/system_prompt.py` appends a Current backend workflow
+At step 2.1, `build_turn_prompt()` in `app/prompts/system_prompt.py` appends a Current backend workflow
 state section to the startup prompt for each request. Its JSON contains only
 `current_workflow_state.stage` and `current_workflow_state.service_id`, taken from saved state
 before the latest message is processed. The full state object is not serialized, and message
@@ -231,6 +234,41 @@ Historical reports remain unchanged. No new LLM call is introduced.
 Verification: 96 offline tests plus passing Ruff and whitespace checks. Tests cover changing
 snapshots, conversation isolation, separation of patient text, rejected updates, escalation
 resets, and per-turn evaluation evidence. No live model evaluation was run for this improvement.
+
+### Current implementation: step 2.2
+
+The same Claude call also requires `dentist_update`, validated by `DentistPreferenceUpdate`.
+Actions are keep, set, clear, and any; only set carries a configured dentist ID. Keep preserves
+the saved preference, clear makes it unanswered again, and any records the patient's explicit
+acceptance of any eligible dentist. The backend does not infer a preference just because only
+one dentist offers the service. Configured dentist IDs and names are supplied in the prompt.
+
+`ConversationState.dentist_preference` is an immutable `DentistPreference` with kind
+unspecified, specific, or any and a nullable dentist_id. Its validator requires an ID only for
+specific. The per-turn state snapshot now includes this object alongside stage and service_id;
+history remains separate. No new LLM call or public API field is introduced.
+
+On a non-escalating booking turn, ConversationService validates both proposed IDs before
+applying either update. Unknown IDs reject the turn as LLMError/HTTP 503 without changing
+accepted history or preferences or exposing the ID in logs. A known dentist paired with an
+incompatible service is a patient clarification, not a provider failure: both requested choices
+are retained, and Python supplies a Portuguese/English reply using configured names and eligible
+dentists. It asks whether to change the dentist or service and reiterates the booking limitation.
+The exact reply shown is saved in history. Service labels use their configured display names.
+
+Compatibility is checked against the merged preferences on every booking turn, including a
+service-only correction, a dentist supplied before a service, or a follow-up to an unresolved
+conflict. A correction, any, or clear can resolve the conflict. FAQs preserve preferences;
+escalation takes priority, clears both preferences, and returns configured guidance. There is
+no calendar access, availability search, appointment creation, or silent dentist reassignment.
+
+Verification: 132 offline tests and Ruff checks passed. Cases cover validated adapter output,
+preference transitions, both languages, compatibility/rechecking, unknown IDs, atomic rejection,
+history, prompt snapshots, isolation, escalation, failure handling, API compatibility, and
+JSON-serializable evaluation evidence. An offline demonstration through the real Claude adapter
+with scripted SDK responses verified consultation with Bruno → cleaning correction → backend
+clarification offering Ana → explicit any preference. It made three stub calls and no network
+calls. No formal live behavior evaluation was run for this step; tests verify code with fakes.
 
 ## Scheduling journey
 
@@ -346,8 +384,9 @@ step, explain its request/data flow, verify it, and stop for review.
    Existing tests verify history, isolation, FAQ behavior, escalation, and failed-turn handling.
 2. **In progress:** structured preference extraction, validation, corrections, and missing-detail
    questions. Step 2.1 extracts and validates the service; its follow-up supplies saved stage
-   and service explicitly to Claude. Next, add dentist preference and compatibility, then
-   date/date range and time/time window, one field at a time. Preserve keep/set/clear semantics,
+   and service explicitly to Claude. **Step 2.2 complete:** dentist preference and configured
+   compatibility, including explicit any, clearing, corrections, and per-turn context. Next,
+   add date/date range and time/time window, one field at a time. Preserve keep/set/clear semantics,
    including the difference between an unspecified dentist and an explicit "any dentist."
    Add deterministic completeness checks and missing-detail questions in separate slices.
 3. Add mock CalendarService reads and slot calculation; demonstrate real mock-backed offers.
@@ -399,3 +438,15 @@ Provider mechanics checked while drafting: [Google free/busy](https://developers
 [event creation and custom IDs](https://developers.google.com/workspace/calendar/api/guides/create-events),
 and [event retrieval](https://developers.google.com/workspace/calendar/api/v3/reference/events/get).
 These explain provider operations; the confirmation and safety rules above are our design choices.
+
+## Execution record
+
+- Step 2.2: added validated dentist updates, explicit accepted dentist preference, and Python
+  compatibility checks over merged service/dentist choices. Extended prompt state and evaluation
+  evidence; documented current behavior in README and CLAUDE.md.
+- Verification: 132 offline tests, Ruff lint/format checks, whitespace checks, and an offline
+  adapter/service demonstration. These implementation checks used no live model or calendar calls.
+- Implementation and tests committed in `eb406a9`. Local VS Code debug launch profiles remain
+  Git-ignored; personal `temp/` notes and `.claude/` commands remain untracked.
+- Next for review: date/date-range extraction in the configured clinic timezone, followed by
+  time preferences in a separate step. V2 remains in progress.
