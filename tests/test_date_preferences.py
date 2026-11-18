@@ -38,7 +38,7 @@ def test_single_day_range_correction_and_keep_preserve_other_preferences(service
     fake_llm.service_update = ServicePreferenceUpdate(action="set", service_id="consultation")
     fake_llm.dentist_update = DentistPreferenceUpdate(action="set", dentist_id="bruno")
     first = choose_dates(fake_llm, "2026-11-18")
-    assert service.handle_message("one", "Consulta com Bruno amanhã") == "reply 1"
+    assert "Qual horário ou período" in service.handle_message("one", "Consulta com Bruno amanhã")
     state = service._states["one"]
     assert state.date_preference == first
     assert first.start_date == first.end_date == date(2026, 11, 18)
@@ -122,7 +122,7 @@ def test_request_clock_uses_configured_clinic_timezone(
 
 def test_today_is_allowed_as_a_date_preference_without_claiming_availability(service, fake_llm):
     today = choose_dates(fake_llm, "2026-11-17")
-    assert service.handle_message("one", "Hoje") == "reply 1"
+    assert service.handle_message("one", "Hoje") == "Qual serviço você deseja agendar?"
     assert service._states["one"].date_preference == today
 
 

@@ -13,7 +13,7 @@ from app.prompts.system_prompt import build_turn_prompt
 from app.schemas.appointment import TIME_PERIODS, DentistPreference, TimePreference
 from app.schemas.conversation import ConversationState
 from app.services.escalation import EscalationService
-from app.services.preferences import assess_preferences
+from app.services.preferences import assess_preferences, missing_preference_reply
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +65,7 @@ class ConversationService:
             conflict_reply = None
             date_reply = None
             time_reply = None
+            collection_reply = None
             preference_status = None
             if result.escalation == "none" and result.intent == "booking":
                 update = result.service_update
@@ -119,11 +120,33 @@ class ConversationService:
                     conflict_reply = self._dentist_conflict_reply(
                         self._services[service_id], dentist_preference, result.language
                     )
+                # Clear can mean an ambiguous correction; preserve its specific LLM clarification.
+                elif not any(
+                    proposal is not None and proposal.action == "clear"
+                    for proposal in (
+                        result.service_update,
+                        result.dentist_update,
+                        result.date_update,
+                        result.time_update,
+                    )
+                ):
+                    service = self._services.get(service_id)
+                    collection_reply = missing_preference_reply(
+                        preference_status,
+                        result.language,
+                        eligible_dentists=(
+                            [self._dentists[dentist_id].name for dentist_id in service.dentist_ids]
+                            if service is not None
+                            else []
+                        ),
+                    )
+                    if collection_reply is not None and result.booking_answer:
+                        collection_reply = f"{result.booking_answer}\n\n{collection_reply}"
             guidance = self._escalation.reply(result.escalation, result.language)
             reply = (
                 guidance
                 if guidance is not None
-                else date_reply or time_reply or conflict_reply or result.text
+                else date_reply or time_reply or conflict_reply or collection_reply or result.text
             )
         except LLMError as exc:
             logger.warning(

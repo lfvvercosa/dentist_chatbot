@@ -65,7 +65,10 @@ def test_single_eligible_dentist_does_not_automatically_become_patient_preferenc
 
     reply = service.handle_message("one", "Quero uma limpeza")
 
-    assert reply == "reply 1"
+    if action == "keep":
+        assert "Dr. Ana Souza" in reply and "preferência por um dentista" in reply
+    else:
+        assert reply == "Qual data ou intervalo de datas você prefere?"
     assert service._states["one"].dentist_preference == DentistPreference(
         kind="any" if action == "any" else "unspecified"
     )
@@ -106,7 +109,9 @@ def test_service_change_rechecks_retained_dentist_and_patient_can_resolve_confli
 ):
     fake_llm.service_update = ServicePreferenceUpdate(action="set", service_id="consultation")
     fake_llm.dentist_update = DentistPreferenceUpdate(action="set", dentist_id="bruno")
-    assert service.handle_message("one", "A consultation with Bruno") == "reply 1"
+    assert service.handle_message("one", "A consultation with Bruno") == (
+        "Qual data ou intervalo de datas você prefere?"
+    )
 
     fake_llm.service_update = ServicePreferenceUpdate(action="set", service_id="cleaning")
     fake_llm.dentist_update = DentistPreferenceUpdate(action="keep", dentist_id=None)
@@ -122,14 +127,17 @@ def test_service_change_rechecks_retained_dentist_and_patient_can_resolve_confli
             action="set" if resolution == "dentist" else resolution,
             dentist_id="ana" if resolution == "dentist" else None,
         )
-    assert service.handle_message("one", "My new choice") == "reply 4"
+    reply = service.handle_message("one", "My new choice")
+    assert reply == (
+        "reply 4" if resolution == "clear" else "Qual data ou intervalo de datas você prefere?"
+    )
 
 
 def test_dentist_can_be_supplied_before_service_and_conflict_is_checked_when_service_arrives(
     service, fake_llm
 ):
     fake_llm.dentist_update = DentistPreferenceUpdate(action="set", dentist_id="carla")
-    assert service.handle_message("one", "With Dr. Carla") == "reply 1"
+    assert service.handle_message("one", "With Dr. Carla") == "Qual serviço você deseja agendar?"
     fake_llm.dentist_update = DentistPreferenceUpdate(action="keep", dentist_id=None)
     fake_llm.service_update = ServicePreferenceUpdate(action="set", service_id="consultation")
 

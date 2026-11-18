@@ -18,6 +18,27 @@ from app.services.conversation import ConversationService
 from scripts.eval_v1 import EvalCase, EvalSuite, RecordingLLM, run_case
 
 
+def test_evaluation_records_backend_question_and_its_actual_history(
+    fake_llm, escalation_service, clinic_config, fixed_clock
+):
+    fake_llm.intent = "booking"
+    fake_llm.booking_answer = "We open at 08:00 on Mondays."
+    llm = RecordingLLM(fake_llm)
+    service = ConversationService(
+        llm, "prompt", escalation_service, clinic_config, clock=fixed_clock
+    )
+    result = run_case(
+        EvalCase(id="missing", messages=["Book", "Continue"], criteria=["Ask missing service"]),
+        service,
+        llm,
+    )
+    question = "We open at 08:00 on Mondays.\n\nQual serviço você deseja agendar?"
+    assert [turn["reply"] for turn in result["turns"]] == [question, question]
+    assert llm.last_result.text == "reply 2"
+    assert result["turns"][0]["decision"]["booking_answer"] == fake_llm.booking_answer
+    assert fake_llm.calls[1][1][1] == ChatMessage("assistant", question)
+
+
 def test_eval_preserves_history_but_isolates_cases_and_leaves_grading_pending(
     fake_llm, escalation_service, clinic_config
 ):
@@ -95,6 +116,7 @@ def test_escalation_check_compares_the_model_decision_with_expected_level(
         "dentist_update": None,
         "date_update": None,
         "time_update": None,
+        "booking_answer": None,
     }
     assert match["turns"][0]["reply"] == escalation_service.reply("urgent", "pt")
     assert match["review"]["verdict"] == "pending"  # Classification check is not full review.

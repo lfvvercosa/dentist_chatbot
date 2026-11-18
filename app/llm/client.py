@@ -36,6 +36,7 @@ class LLMResult:
     dentist_update: DentistPreferenceUpdate | None = None
     date_update: DatePreferenceUpdate | None = None
     time_update: TimePreferenceUpdate | None = None
+    booking_answer: str | None = None
 
 
 class LLMError(Exception):

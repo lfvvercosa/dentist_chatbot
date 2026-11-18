@@ -83,7 +83,7 @@ def test_period_exact_window_correction_keep_and_saved_context(service, fake_llm
 def test_explicit_any_differs_from_unanswered_and_clear_removes_superseded_time(
     service, fake_llm, message
 ):
-    assert service.handle_message("one", "Book") == "reply 1"
+    assert service.handle_message("one", "Book") == "Qual serviço você deseja agendar?"
     assert service._states["one"].time_preference is None
     any_time = choose_time(fake_llm, "any")
     service.handle_message("one", "Qualquer horário")
@@ -134,7 +134,7 @@ def test_today_preserves_preferences_that_have_not_fully_elapsed(
 ):
     choose_dates(fake_llm)
     preference = choose_time(fake_llm, kind, start, end)
-    assert service.handle_message("one", "My time") == "reply 1"
+    assert service.handle_message("one", "My time") == "Qual serviço você deseja agendar?"
     assert service._states["one"].time_preference == preference
 
 

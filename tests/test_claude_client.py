@@ -50,6 +50,7 @@ def make_response(
     dentist_update=None,
     date_update=None,
     time_update=None,
+    booking_answer=None,
 ):
     body = json.dumps(
         {
@@ -73,6 +74,7 @@ def make_response(
             "time_update": (
                 time_update if time_update is not None else {"action": "keep", "preference": None}
             ),
+            "booking_answer": booking_answer,
         }
     )
     return SimpleNamespace(
@@ -128,6 +130,33 @@ def test_booking_intent_is_returned_from_the_validated_decision():
 
     assert result.intent == "booking"
     assert result.text == "Which day would you prefer?"
+
+
+@pytest.mark.parametrize("answer", [None, "We open at 08:00 on Mondays."])
+def test_booking_answer_is_returned_from_the_validated_decision(answer):
+    sdk = StubSDK(response=make_response(intent="booking", booking_answer=answer))
+    result = make_client(sdk).generate(system="s", messages=[ChatMessage("user", "My request")])
+    assert result.booking_answer == answer
+
+
+def test_real_adapter_and_service_preserve_mixed_answer_before_backend_question(
+    escalation_service, clinic_config, fixed_clock
+):
+    sdk = StubSDK(
+        response=make_response(
+            intent="booking",
+            language="en",
+            text="Unselected full model reply",
+            booking_answer="We open at 08:00 on Mondays.",
+        )
+    )
+    service = ConversationService(
+        make_client(sdk), "prompt", escalation_service, clinic_config, clock=fixed_clock
+    )
+    reply = service.handle_message("one", "Can I book? When do you open on Monday?")
+    assert reply == "We open at 08:00 on Mondays.\n\nWhich service would you like to schedule?"
+    assert len(sdk.calls) == 1
+    assert service._states["one"].messages[-1] == ChatMessage("assistant", reply)
 
 
 def test_service_update_is_returned_from_the_validated_decision():
@@ -217,6 +246,7 @@ _VALID_DECISION = {
     "dentist_update": {"action": "keep", "dentist_id": None},
     "date_update": {"action": "keep", "date_range": None},
     "time_update": {"action": "keep", "preference": None},
+    "booking_answer": None,
 }
 
 
@@ -335,6 +365,8 @@ def test_malformed_time_response_preserves_service_state_and_recovers_on_the_nex
     [
         "patient secret: not JSON",
         {"reply": "patient secret"},
+        {k: v for k, v in _VALID_DECISION.items() if k != "booking_answer"},
+        _VALID_DECISION | {"booking_answer": 123},
         {k: v for k, v in _VALID_DECISION.items() if k != "time_update"},
         _VALID_DECISION | {"escalation": "invalid"},
         _VALID_DECISION | {"language": "fr"},

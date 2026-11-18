@@ -31,6 +31,9 @@ class AssistantDecision(BaseModel):
     time_update: TimePreferenceUpdate = Field(
         description="Change to the time preference in the current patient message"
     )
+    booking_answer: str | None = Field(
+        description="Clinic answer alongside a booking follow-up; no questions; null otherwise"
+    )
     reply: str = Field(description="Normal reply for none; empty string when escalating")
 
     @model_validator(mode="after")

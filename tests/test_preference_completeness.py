@@ -133,7 +133,9 @@ def keep_preferences(fake_llm):
 
 def test_service_assesses_merged_preferences_and_logs_only_field_codes(service, fake_llm, caplog):
     fake_llm.service_update = ServicePreferenceUpdate(action="set", service_id="cleaning")
-    assert service.handle_message("one", "Private patient text") == "reply 1"
+    assert "Profissionais habilitados: Dr. Ana Souza." in service.handle_message(
+        "one", "Private patient text"
+    )
     first = caplog.records[-1].getMessage()
     assert "preferences_complete=False missing_preferences=dentist,date,time" in first
     assert "Private patient text" not in caplog.text

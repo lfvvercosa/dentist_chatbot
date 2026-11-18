@@ -36,14 +36,30 @@ def test_health(client):
 
 
 @pytest.mark.parametrize("intent", ["other", "booking"])
-def test_chat_returns_llm_reply(client, fake_llm, intent):
+def test_chat_returns_reply_in_the_same_public_contract(client, fake_llm, intent):
     fake_llm.intent = intent
     response = client.post("/chat", json={"conversation_id": "abc-123", "message": "  hello  "})
 
     assert response.status_code == 200
-    assert response.json() == {"conversation_id": "abc-123", "reply": "reply 1"}
+    expected = "Qual serviço você deseja agendar?" if intent == "booking" else "reply 1"
+    assert response.json() == {"conversation_id": "abc-123", "reply": expected}
     _, messages = fake_llm.calls[0]
     assert messages == [ChatMessage("user", "hello")]  # stripped before reaching the LLM
+
+
+def test_mixed_booking_answer_and_backend_question_share_the_same_chat_contract(client, fake_llm):
+    fake_llm.intent = "booking"
+    fake_llm.language = "en"
+    fake_llm.booking_answer = "We open at 08:00 on Mondays."
+    response = client.post(
+        "/chat",
+        json={"conversation_id": "abc-123", "message": "Can I book? When do you open Monday?"},
+    )
+    assert response.status_code == 200
+    assert response.json() == {
+        "conversation_id": "abc-123",
+        "reply": "We open at 08:00 on Mondays.\n\nWhich service would you like to schedule?",
+    }
 
 
 def test_chat_returns_503_when_llm_fails(client, fake_llm):
@@ -119,6 +135,20 @@ def test_past_date_returns_a_clarification_in_the_same_public_contract(client, f
     assert "a partir de 2026-11-17" in response.json()["reply"]
 
 
+def test_elapsed_time_returns_a_clarification_in_the_same_public_contract(client, fake_llm):
+    fake_llm.intent = "booking"
+    fake_llm.date_update = DatePreferenceUpdate(
+        action="set", date_range=DatePreference(start_date="2026-11-17", end_date="2026-11-17")
+    )
+    fake_llm.time_update = TimePreferenceUpdate(
+        action="set", preference=TimePreference(kind="window", start_time="08:00", end_time="08:00")
+    )
+    response = client.post("/chat", json={"conversation_id": "abc-123", "message": "Hoje às 8h"})
+    assert response.status_code == 200
+    assert set(response.json()) == {"conversation_id", "reply"}
+    assert "já passou hoje" in response.json()["reply"]
+
+
 @pytest.mark.parametrize(
     "payload",
     [
@@ -134,17 +164,3 @@ def test_chat_rejects_invalid_requests(client, fake_llm, payload):
 
     assert response.status_code == 422
     assert fake_llm.calls == []  # invalid input never costs an LLM call
-
-
-def test_elapsed_time_returns_a_clarification_in_the_same_public_contract(client, fake_llm):
-    fake_llm.intent = "booking"
-    fake_llm.date_update = DatePreferenceUpdate(
-        action="set", date_range=DatePreference(start_date="2026-11-17", end_date="2026-11-17")
-    )
-    fake_llm.time_update = TimePreferenceUpdate(
-        action="set", preference=TimePreference(kind="window", start_time="08:00", end_time="08:00")
-    )
-    response = client.post("/chat", json={"conversation_id": "abc-123", "message": "Hoje às 8h"})
-    assert response.status_code == 200
-    assert set(response.json()) == {"conversation_id", "reply"}
-    assert "já passou hoje" in response.json()["reply"]

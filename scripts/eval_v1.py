@@ -121,6 +121,7 @@ def run_case(case: EvalCase, service: ConversationService, llm: RecordingLLM) ->
                         if llm.last_result.time_update is not None
                         else None
                     ),
+                    "booking_answer": llm.last_result.booking_answer,
                 }
                 if case.expected_escalation is not None:
                     expected = case.expected_escalation[index]
