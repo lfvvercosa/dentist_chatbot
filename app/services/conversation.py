@@ -7,12 +7,13 @@ from collections.abc import Callable
 from datetime import UTC, date, datetime
 from zoneinfo import ZoneInfo
 
-from app.core.clinic_config import ClinicConfig
+from app.core.clinic_config import ClinicConfig, Service
 from app.llm.client import ChatMessage, LLMClient, LLMError, ResponseLanguage
 from app.prompts.system_prompt import build_turn_prompt
 from app.schemas.appointment import TIME_PERIODS, DentistPreference, TimePreference
 from app.schemas.conversation import ConversationState
 from app.services.escalation import EscalationService
+from app.services.preferences import assess_preferences
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +65,7 @@ class ConversationService:
             conflict_reply = None
             date_reply = None
             time_reply = None
+            preference_status = None
             if result.escalation == "none" and result.intent == "booking":
                 update = result.service_update
                 if update is not None and update.action == "set":
@@ -107,9 +109,16 @@ class ConversationService:
                 ):
                     time_preference = None
                     time_reply = _past_time_reply(result.language)
-                conflict_reply = self._dentist_conflict_reply(
-                    service_id, dentist_preference, result.language
+                preference_status = assess_preferences(
+                    service=self._services.get(service_id),
+                    dentist=dentist_preference,
+                    dates=date_preference,
+                    time=time_preference,
                 )
+                if preference_status.conflicts:
+                    conflict_reply = self._dentist_conflict_reply(
+                        self._services[service_id], dentist_preference, result.language
+                    )
             guidance = self._escalation.reply(result.escalation, result.language)
             reply = (
                 guidance
@@ -143,7 +152,8 @@ class ConversationService:
 
         logger.info(
             "chat request_id=%s conversation_id=%s outcome=ok latency_ms=%d model=%s "
-            "input_tokens=%d output_tokens=%d escalation=%s intent=%s stage=%s",
+            "input_tokens=%d output_tokens=%d escalation=%s intent=%s stage=%s "
+            "preferences_complete=%s missing_preferences=%s preference_conflicts=%s",
             request_id,
             conversation_id,
             _elapsed_ms(start),
@@ -153,6 +163,13 @@ class ConversationService:
             result.escalation,
             result.intent,
             state.stage,
+            preference_status.is_complete if preference_status is not None else None,
+            ",".join(preference_status.missing) or "none"
+            if preference_status is not None
+            else None,
+            ",".join(preference_status.conflicts) or "none"
+            if preference_status is not None
+            else None,
         )
 
         # Save the turn only after a successful reply: if the call fails, the history
@@ -161,13 +178,8 @@ class ConversationService:
         return reply
 
     def _dentist_conflict_reply(
-        self, service_id: str | None, preference: DentistPreference, language: ResponseLanguage
-    ) -> str | None:
-        if service_id is None or preference.kind != "specific":
-            return None
-        service = self._services[service_id]
-        if preference.dentist_id in service.dentist_ids:
-            return None
+        self, service: Service, preference: DentistPreference, language: ResponseLanguage
+    ) -> str:
         dentist = self._dentists[preference.dentist_id]
         eligible = ", ".join(self._dentists[dentist_id].name for dentist_id in service.dentist_ids)
         if language == "pt":
