@@ -11,6 +11,7 @@ from app.schemas.appointment import (
     DatePreferenceUpdate,
     DentistPreferenceUpdate,
     ServicePreferenceUpdate,
+    TimePreferenceUpdate,
 )
 from app.services.escalation import EscalationService
 
@@ -28,6 +29,7 @@ class FakeLLM(LLMClient):
         self.service_update: ServicePreferenceUpdate | None = None
         self.dentist_update: DentistPreferenceUpdate | None = None
         self.date_update: DatePreferenceUpdate | None = None
+        self.time_update: TimePreferenceUpdate | None = None
 
     def generate(self, system: str, messages: Sequence[ChatMessage]) -> LLMResult:
         self.calls.append((system, list(messages)))
@@ -44,6 +46,7 @@ class FakeLLM(LLMClient):
             service_update=self.service_update,
             dentist_update=self.dentist_update,
             date_update=self.date_update,
+            time_update=self.time_update,
         )
 
 

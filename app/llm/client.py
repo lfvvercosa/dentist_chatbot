@@ -9,6 +9,7 @@ from app.schemas.appointment import (
     DatePreferenceUpdate,
     DentistPreferenceUpdate,
     ServicePreferenceUpdate,
+    TimePreferenceUpdate,
 )
 
 EscalationLevel = Literal["none", "urgent", "emergency"]
@@ -34,6 +35,7 @@ class LLMResult:
     service_update: ServicePreferenceUpdate | None = None
     dentist_update: DentistPreferenceUpdate | None = None
     date_update: DatePreferenceUpdate | None = None
+    time_update: TimePreferenceUpdate | None = None
 
 
 class LLMError(Exception):

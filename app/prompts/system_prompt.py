@@ -5,6 +5,7 @@ from datetime import datetime
 from pathlib import Path
 
 from app.core.clinic_config import ClinicConfig, Weekday
+from app.schemas.appointment import TIME_PERIODS
 from app.schemas.conversation import ConversationState
 
 _TEMPLATE_PATH = Path(__file__).with_name("system_prompt.md")
@@ -24,6 +25,13 @@ def build_turn_prompt(system_prompt: str, state: ConversationState, *, now: date
             "local_datetime": now.isoformat(),
             "today": now.date().isoformat(),
         },
+        "time_periods": {
+            name: {
+                "start_time": start.isoformat(),
+                "end_time_exclusive": end.isoformat() if end is not None else None,
+            }
+            for name, (start, end) in TIME_PERIODS.items()
+        },
         "current_workflow_state": {
             "stage": state.stage,
             "service_id": state.service_id,
@@ -31,6 +39,11 @@ def build_turn_prompt(system_prompt: str, state: ConversationState, *, now: date
             "date_preference": (
                 state.date_preference.model_dump(mode="json")
                 if state.date_preference is not None
+                else None
+            ),
+            "time_preference": (
+                state.time_preference.model_dump(mode="json")
+                if state.time_preference is not None
                 else None
             ),
         },

@@ -7,6 +7,7 @@ from app.schemas.appointment import (
     DatePreferenceUpdate,
     DentistPreferenceUpdate,
     ServicePreferenceUpdate,
+    TimePreferenceUpdate,
 )
 
 
@@ -26,6 +27,9 @@ class AssistantDecision(BaseModel):
     )
     date_update: DatePreferenceUpdate = Field(
         description="Change to the date preference in the current patient message"
+    )
+    time_update: TimePreferenceUpdate = Field(
+        description="Change to the time preference in the current patient message"
     )
     reply: str = Field(description="Normal reply for none; empty string when escalating")
 

@@ -1,11 +1,19 @@
 """Structured proposals for appointment preferences, separate from calendar actions."""
 
-from datetime import date
+from datetime import date, time
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.core.clinic_config import Slug
+
+# Demo meanings for named preferences, independent of clinic opening hours.
+# Periods include their start and exclude their end; None means the end of the day.
+TIME_PERIODS = {
+    "morning": (time(0), time(12)),
+    "afternoon": (time(12), time(18)),
+    "evening": (time(18), None),
+}
 
 
 class ServicePreferenceUpdate(BaseModel):
@@ -91,4 +99,55 @@ class DatePreferenceUpdate(BaseModel):
     def require_range_only_for_set(self) -> "DatePreferenceUpdate":
         if (self.action == "set") != (self.date_range is not None):
             raise ValueError("only set requires a date_range")
+        return self
+
+
+class TimePreference(BaseModel):
+    """Clinic-local start-time preference; equal window endpoints mean an exact time."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["window", "morning", "afternoon", "evening", "any"]
+    start_time: time | None = Field(description="Inclusive lower bound for window; null otherwise")
+    end_time: time | None = Field(description="Inclusive upper bound for window; null otherwise")
+
+    @field_validator("start_time", "end_time", mode="before")
+    @classmethod
+    def require_local_time(cls, value: object) -> time | None:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            value = time.fromisoformat(value)
+        if type(value) is not time or value.tzinfo is not None:
+            raise ValueError("time preferences require local times without a date or offset")
+        return value
+
+    @model_validator(mode="after")
+    def require_valid_bounds(self) -> "TimePreference":
+        if self.kind == "window":
+            if self.start_time is None and self.end_time is None:
+                raise ValueError("a window requires at least one time bound")
+            if (
+                self.start_time is not None
+                and self.end_time is not None
+                and self.start_time > self.end_time
+            ):
+                raise ValueError("start_time must not follow end_time")
+        elif self.start_time is not None or self.end_time is not None:
+            raise ValueError("only a window carries time bounds")
+        return self
+
+
+class TimePreferenceUpdate(BaseModel):
+    """A time proposal; keep differs from clearing or explicitly accepting any time."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    action: Literal["keep", "set", "clear"]
+    preference: TimePreference | None = Field(description="Time preference for set; null otherwise")
+
+    @model_validator(mode="after")
+    def require_preference_only_for_set(self) -> "TimePreferenceUpdate":
+        if (self.action == "set") != (self.preference is not None):
+            raise ValueError("only set requires a time preference")
         return self

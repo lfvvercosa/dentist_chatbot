@@ -14,8 +14,11 @@ from app.schemas.appointment import (
     DatePreferenceUpdate,
     DentistPreferenceUpdate,
     ServicePreferenceUpdate,
+    TimePreference,
+    TimePreferenceUpdate,
 )
 from app.schemas.assistant import AssistantDecision
+from app.services.conversation import ConversationService
 
 _REQUEST = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
 
@@ -46,6 +49,7 @@ def make_response(
     service_update=None,
     dentist_update=None,
     date_update=None,
+    time_update=None,
 ):
     body = json.dumps(
         {
@@ -65,6 +69,9 @@ def make_response(
             ),
             "date_update": (
                 date_update if date_update is not None else {"action": "keep", "date_range": None}
+            ),
+            "time_update": (
+                time_update if time_update is not None else {"action": "keep", "preference": None}
             ),
         }
     )
@@ -209,7 +216,118 @@ _VALID_DECISION = {
     "service_update": {"action": "keep", "service_id": None},
     "dentist_update": {"action": "keep", "dentist_id": None},
     "date_update": {"action": "keep", "date_range": None},
+    "time_update": {"action": "keep", "preference": None},
 }
+
+
+@pytest.mark.parametrize(
+    "preference",
+    [
+        {"kind": kind, "start_time": None, "end_time": None}
+        for kind in ("morning", "afternoon", "evening", "any")
+    ]
+    + [
+        {"kind": "window", "start_time": start, "end_time": end}
+        for start, end in (
+            ("14:00:00", "14:00:00"),
+            ("14:00", "16:00"),
+            ("15:00", None),
+            (None, "11:00"),
+        )
+    ],
+)
+def test_time_preference_is_returned_from_the_validated_decision(preference):
+    sdk = StubSDK(response=make_response(time_update={"action": "set", "preference": preference}))
+    result = make_client(sdk).generate(system="s", messages=[ChatMessage("user", "My time")])
+    assert result.time_update == TimePreferenceUpdate(
+        action="set", preference=TimePreference.model_validate(preference)
+    )
+
+
+@pytest.mark.parametrize("action", ["keep", "clear"])
+def test_time_keep_and_clear_are_returned(action):
+    sdk = StubSDK(response=make_response(time_update={"action": action, "preference": None}))
+    result = make_client(sdk).generate(system="s", messages=[ChatMessage("user", "My time")])
+    assert result.time_update == TimePreferenceUpdate(action=action, preference=None)
+
+
+@pytest.mark.parametrize(
+    "update",
+    [
+        None,
+        {"action": "set", "preference": None},
+        {"action": "invent", "preference": None},
+        {"action": "clear", "preference": None, "extra": True},
+    ]
+    + [
+        {"action": action, "preference": {"kind": "any", "start_time": None, "end_time": None}}
+        for action in ("keep", "clear")
+    ]
+    + [
+        {"action": "set", "preference": preference}
+        for preference in (
+            {"kind": "window", "start_time": None, "end_time": None},
+            {"kind": "window", "start_time": "16:00", "end_time": "14:00"},
+            {"kind": "window", "start_time": "23:00", "end_time": "01:00"},
+            {"kind": "window", "start_time": "25:00", "end_time": None},
+            {"kind": "window", "start_time": "tomorrow", "end_time": None},
+            {"kind": "window", "start_time": 3600, "end_time": None},
+            {"kind": "window", "start_time": True, "end_time": None},
+            {"kind": "window", "start_time": "14:00:00Z", "end_time": None},
+            {"kind": "window", "start_time": None, "end_time": "14:00:00-03:00"},
+            {"kind": "window", "start_time": "2026-11-17T14:00:00", "end_time": None},
+            {"kind": "morning", "start_time": "08:00", "end_time": None},
+            {"kind": "any", "start_time": None, "end_time": "18:00"},
+            {"kind": "night", "start_time": None, "end_time": None},
+            {"kind": "morning", "start_time": None},
+            {"kind": "any", "start_time": None, "end_time": None, "extra": True},
+        )
+    ],
+)
+def test_invalid_time_proposal_is_rejected_without_exposing_content(update):
+    sdk = StubSDK(response=make_response(raw=json.dumps(_VALID_DECISION | {"time_update": update})))
+    with pytest.raises(LLMError, match="invalid assistant decision") as error:
+        make_client(sdk).generate(system="s", messages=[ChatMessage("user", "Hi")])
+    assert "patient secret" not in str(error.value)
+
+
+def test_malformed_time_response_preserves_service_state_and_recovers_on_the_next_turn(
+    escalation_service, clinic_config, fixed_clock
+):
+    sdk = StubSDK(
+        response=make_response(
+            intent="booking",
+            time_update={
+                "action": "set",
+                "preference": {"kind": "window", "start_time": "14:00", "end_time": "16:00"},
+            },
+        )
+    )
+    service = ConversationService(
+        make_client(sdk), "base", escalation_service, clinic_config, clock=fixed_clock
+    )
+    service.handle_message("one", "Entre 14 e 16")
+    before = service._states["one"].model_copy(deep=True)
+    sdk._response = make_response(
+        intent="booking",
+        time_update={
+            "action": "set",
+            "preference": {"kind": "window", "start_time": "14:00:00Z", "end_time": None},
+        },
+    )
+    with pytest.raises(LLMError, match="invalid assistant decision"):
+        service.handle_message("one", "Failed correction")
+    assert service._states["one"] == before
+    sdk._response = make_response(intent="booking")
+    service.handle_message("one", "Continue")
+    last_call = sdk.calls[-1]
+    context = json.loads(last_call["system"].rsplit("\n", 1)[1])
+    assert context["current_workflow_state"]["time_preference"] == {
+        "kind": "window",
+        "start_time": "14:00:00",
+        "end_time": "16:00:00",
+    }
+    assert "Failed correction" not in [m["content"] for m in last_call["messages"]]
 
 
 @pytest.mark.parametrize(
@@ -217,6 +335,7 @@ _VALID_DECISION = {
     [
         "patient secret: not JSON",
         {"reply": "patient secret"},
+        {k: v for k, v in _VALID_DECISION.items() if k != "time_update"},
         _VALID_DECISION | {"escalation": "invalid"},
         _VALID_DECISION | {"language": "fr"},
         _VALID_DECISION | {"reply": "   "},

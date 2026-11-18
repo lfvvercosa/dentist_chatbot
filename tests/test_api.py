@@ -9,6 +9,8 @@ from app.schemas.appointment import (
     DatePreferenceUpdate,
     DentistPreferenceUpdate,
     ServicePreferenceUpdate,
+    TimePreference,
+    TimePreferenceUpdate,
 )
 from app.services.conversation import ConversationService
 
@@ -132,3 +134,17 @@ def test_chat_rejects_invalid_requests(client, fake_llm, payload):
 
     assert response.status_code == 422
     assert fake_llm.calls == []  # invalid input never costs an LLM call
+
+
+def test_elapsed_time_returns_a_clarification_in_the_same_public_contract(client, fake_llm):
+    fake_llm.intent = "booking"
+    fake_llm.date_update = DatePreferenceUpdate(
+        action="set", date_range=DatePreference(start_date="2026-11-17", end_date="2026-11-17")
+    )
+    fake_llm.time_update = TimePreferenceUpdate(
+        action="set", preference=TimePreference(kind="window", start_time="08:00", end_time="08:00")
+    )
+    response = client.post("/chat", json={"conversation_id": "abc-123", "message": "Hoje às 8h"})
+    assert response.status_code == 200
+    assert set(response.json()) == {"conversation_id", "reply"}
+    assert "já passou hoje" in response.json()["reply"]

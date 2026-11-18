@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 from app.core.clinic_config import ClinicConfig
 from app.llm.client import ChatMessage, LLMClient, LLMError, ResponseLanguage
 from app.prompts.system_prompt import build_turn_prompt
-from app.schemas.appointment import DentistPreference
+from app.schemas.appointment import TIME_PERIODS, DentistPreference, TimePreference
 from app.schemas.conversation import ConversationState
 from app.services.escalation import EscalationService
 
@@ -60,8 +60,10 @@ class ConversationService:
             service_id = state.service_id
             dentist_preference = state.dentist_preference
             date_preference = state.date_preference
+            time_preference = state.time_preference
             conflict_reply = None
             date_reply = None
+            time_reply = None
             if result.escalation == "none" and result.intent == "booking":
                 update = result.service_update
                 if update is not None and update.action == "set":
@@ -91,12 +93,28 @@ class ConversationService:
                 if date_preference is not None and date_preference.start_date < now.date():
                     date_preference = None
                     date_reply = _past_date_reply(now.date(), result.language)
+                time_update = result.time_update
+                if time_update is not None:
+                    if time_update.action == "set":
+                        time_preference = time_update.preference
+                    elif time_update.action == "clear":
+                        time_preference = None
+                if (
+                    date_preference is not None
+                    and date_preference.start_date == date_preference.end_date == now.date()
+                    and time_preference is not None
+                    and _time_has_passed(time_preference, now)
+                ):
+                    time_preference = None
+                    time_reply = _past_time_reply(result.language)
                 conflict_reply = self._dentist_conflict_reply(
                     service_id, dentist_preference, result.language
                 )
             guidance = self._escalation.reply(result.escalation, result.language)
             reply = (
-                guidance if guidance is not None else date_reply or conflict_reply or result.text
+                guidance
+                if guidance is not None
+                else date_reply or time_reply or conflict_reply or result.text
             )
         except LLMError as exc:
             logger.warning(
@@ -115,11 +133,13 @@ class ConversationService:
             state.service_id = None
             state.dentist_preference = DentistPreference()
             state.date_preference = None
+            state.time_preference = None
         elif result.intent == "booking":
             state.stage = "collecting_preferences"
             state.service_id = service_id
             state.dentist_preference = dentist_preference
             state.date_preference = date_preference
+            state.time_preference = time_preference
 
         logger.info(
             "chat request_id=%s conversation_id=%s outcome=ok latency_ms=%d model=%s "
@@ -167,6 +187,29 @@ class ConversationService:
 
 def _utc_now() -> datetime:
     return datetime.now(UTC)
+
+
+def _time_has_passed(preference: TimePreference, now: datetime) -> bool:
+    if preference.kind == "window":
+        return preference.end_time is not None and preference.end_time < now.time()
+    if preference.kind in TIME_PERIODS:
+        _, end = TIME_PERIODS[preference.kind]
+        return end is not None and end <= now.time()
+    return False
+
+
+def _past_time_reply(language: ResponseLanguage) -> str:
+    if language == "pt":
+        return (
+            "O horário ou período escolhido já passou hoje. "
+            "Você prefere um horário mais tarde ou outra data? "
+            "Ainda não posso consultar horários nem agendar."
+        )
+    return (
+        "The requested time or period has already passed today. "
+        "Would you prefer a later time or another date? "
+        "I cannot check availability or book appointments yet."
+    )
 
 
 def _past_date_reply(today: date, language: ResponseLanguage) -> str:

@@ -11,6 +11,8 @@ from app.schemas.appointment import (
     DatePreferenceUpdate,
     DentistPreferenceUpdate,
     ServicePreferenceUpdate,
+    TimePreference,
+    TimePreferenceUpdate,
 )
 from app.services.conversation import ConversationService
 from scripts.eval_v1 import EvalCase, EvalSuite, RecordingLLM, run_case
@@ -92,6 +94,7 @@ def test_escalation_check_compares_the_model_decision_with_expected_level(
         "service_update": None,
         "dentist_update": None,
         "date_update": None,
+        "time_update": None,
     }
     assert match["turns"][0]["reply"] == escalation_service.reply("urgent", "pt")
     assert match["review"]["verdict"] == "pending"  # Classification check is not full review.
@@ -166,12 +169,14 @@ def test_evaluation_saves_the_exact_prompt_with_state_for_each_turn(
             "service_id": None,
             "dentist_preference": {"kind": "unspecified", "dentist_id": None},
             "date_preference": None,
+            "time_preference": None,
         },
         {
             "stage": "collecting_preferences",
             "service_id": "cleaning",
             "dentist_preference": {"kind": "unspecified", "dentist_id": None},
             "date_preference": None,
+            "time_preference": None,
         },
     ]
 
@@ -201,4 +206,28 @@ def test_evaluation_saves_json_dates_and_the_exact_clinic_clock_context(
     context = json.loads(turn["system_prompt"].rsplit("\n", 1)[1])
     assert context["current_time"]["today"] == "2026-11-17"
     assert context["current_time"]["timezone"] == clinic_config.timezone
+    json.dumps(result)
+
+
+def test_evaluation_serializes_time_proposals_and_saved_time_context(
+    fake_llm, escalation_service, clinic_config, fixed_clock
+):
+    fake_llm.intent = "booking"
+    fake_llm.time_update = TimePreferenceUpdate(
+        action="set", preference=TimePreference(kind="window", start_time="14:00", end_time="16:00")
+    )
+    llm = RecordingLLM(fake_llm)
+    service = ConversationService(
+        llm, "prompt", escalation_service, clinic_config, clock=fixed_clock
+    )
+    result = run_case(
+        EvalCase(id="times", messages=["Entre 14 e 16", "Continue"], criteria=["Keep time"]),
+        service,
+        llm,
+    )
+    first, second = result["turns"]
+    preference = {"kind": "window", "start_time": "14:00:00", "end_time": "16:00:00"}
+    assert first["decision"]["time_update"] == {"action": "set", "preference": preference}
+    context = json.loads(second["system_prompt"].rsplit("\n", 1)[1])
+    assert context["current_workflow_state"]["time_preference"] == preference
     json.dumps(result)
