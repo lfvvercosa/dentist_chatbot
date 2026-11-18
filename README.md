@@ -20,8 +20,9 @@ Streamlit  →  FastAPI /chat  →  ConversationService  →  Claude
 See [docs/v1-scope.md](docs/v1-scope.md) for the completed checklist and
 [docs/v1-decisions.md](docs/v1-decisions.md) for design choices, lessons, and limitations.
 
-V2 development has started; see [docs/v2-scope.md](docs/v2-scope.md). Steps 1.1–2.3 introduce typed,
-in-memory conversation state, booking intent, and service/dentist/date preference extraction.
+V2 development has started; see [docs/v2-scope.md](docs/v2-scope.md). Steps 1.1–2.6 introduce typed,
+in-memory conversation state, booking intent, service/dentist/date/time preference extraction,
+deterministic preference completeness checks, and backend missing-detail questions.
 Each Claude request includes saved preferences and the current time in the configured clinic
 timezone, alongside the separate message history.
 A validated intent moves the workflow from
@@ -35,9 +36,38 @@ them. An unanswered preference remains distinct from "any dentist."
 Dates use keep/set/clear updates and one inclusive start/end range; a single day has equal
 endpoints. Claude interprets relative dates from the supplied clock and is instructed to ask
 about ambiguous dates. Python rejects past dates, clears the date preference, and asks for a
-replacement without changing service/dentist choices. Today is allowed as a date preference;
-same-day times are not checked yet. Time-of-day extraction, calendar access, and booking are
-not implemented yet. Date validation does not check clinic availability.
+replacement without changing service/dentist choices. Today is allowed as a date preference.
+
+Time preferences support morning/afternoon/evening, exact times, inclusive windows (including
+one-sided bounds), and an explicit "any time," distinct from unanswered. Named periods have
+explicit demo meanings: morning before noon, afternoon from noon to 18:00, and evening from
+18:00 to the end of the day. Times describe appointment starts in the configured clinic timezone.
+Claude proposes keep/set/clear updates; Python validates their shape and clears fully elapsed
+times when the selected date is only today. Partially elapsed windows and preferences applying
+to future days are retained. Date corrections also recheck the retained time. Ambiguous
+corrections are instructed to clear the old time and ask for clarification.
+
+After merging and validating preferences on a booking turn, Python reports missing fields in
+service/dentist/date/time order and any service/dentist conflict. Explicit any dentist/any time
+count as answers; named periods and date ranges also count. A draft is complete only when no
+fields are missing and no compatibility conflict remains. This derived result is not saved as
+a second state flag. It drives the existing dentist-conflict clarification and appears in logs
+as `preferences_complete`, `missing_preferences`, and `preference_conflicts`. FAQ/escalation
+turns skip this assessment and log `None` for those fields.
+
+For ordinary incomplete booking turns, the backend asks one missing-detail question in that
+same order, in Portuguese or English. The dentist question lists configured eligible providers
+and offers the explicit any choice; it never automatically selects the only eligible dentist.
+The actual question is saved in history and evaluation reports. Escalation, past-date/time,
+and dentist-conflict guidance take priority. A clear proposal preserves Claude's specific
+ambiguity/withdrawal clarification; a complete draft keeps its usual generated summary and
+clinic phone. Standalone FAQs keep their normal generated answers. For mixed clinic-question/
+booking messages, Claude's internal `booking_answer` carries the clinic answer without a
+follow-up question; Python preserves it before adding the missing-detail question. The same
+Claude call supplies both, and the public API still returns just conversation_id and reply.
+
+Calendar access and booking are not implemented yet. Date/time validation and completeness do
+not check opening hours, appointment duration, or calendar availability.
 
 V2 will add the remaining preference extraction and scheduling workflow, followed by
 CalendarService (mock first, then Google test calendars), including confirmation, availability

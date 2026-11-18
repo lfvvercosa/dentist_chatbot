@@ -14,14 +14,19 @@ proposal recorded in `c2708cc`; that proposal did not add any application functi
   (`43eb391`). Step 2.2 (`eb406a9`) adds dentist preference extraction and configured compatibility checks,
   including corrections and the distinction between unanswered and any eligible dentist.
   Step 2.3 adds dates/date ranges, explicit clinic-clock context, corrections, clearing, and
-  past-date validation. The latest code verification passed 169 offline tests and Ruff checks.
-- **Partial:** structured appointment preferences. Service, dentist, and date are extracted;
-  time preferences and deterministic completeness checks remain to be implemented.
+  past-date validation. Step 2.4 adds time periods, exact times, inclusive windows, explicit
+  any time, corrections, and elapsed-time validation for today-only dates. Step 2.5 adds
+  deterministic preference completeness and compatibility assessment. Step 2.6 adds localized
+  backend questions for the first missing detail. The latest code verification passed 306
+  offline tests and Ruff checks.
+- **Implemented preference collection:** service/dentist/date/time extraction, validation,
+  completeness assessment, and backend missing-detail questions. Ambiguous clear proposals
+  preserve model-generated clarifications; real-model interpretation accuracy remains unproven.
 - **Not started:** CalendarService, availability, slot selection, confirmation, booking,
   verification, duplicate protection, Google Calendar integration, and V2 release validation.
-- **Next small implementation step:** time-of-day/time-window preference extraction and
-  validation in the clinic timezone. Calendar availability and booking follow in later steps;
-  the existing API and booking limitation remain.
+- **Next small implementation step:** a mock CalendarService with read-only busy intervals,
+  followed by slot calculation. Selection, confirmation, and booking follow later; the existing
+  API and booking limitation remain.
 
 V1 remains the completed release tagged `v1.0` at `50cc705`, with package/API versions
 `1.0.0` and 64 release tests. Committing V2 work does not complete or release V2.
@@ -271,7 +276,7 @@ with scripted SDK responses verified consultation with Bruno → cleaning correc
 clarification offering Ana → explicit any preference. It made three stub calls and no network
 calls. No formal live behavior evaluation was run for this step; tests verify code with fakes.
 
-### Current implementation: step 2.3
+### Foundation: step 2.3
 
 The same structured Claude response now also requires `date_update`, with keep/set/clear
 actions and a nullable date_range. Set requires a `DatePreference` containing start_date and
@@ -316,6 +321,144 @@ offline demonstration through the real Claude adapter with scripted SDK response
 tomorrow → range correction → ambiguous correction/clear → backend past-date clarification,
 preserving service and dentist. No live model or calendar calls were made; these checks do
 not establish the accuracy of real model date interpretation.
+
+### Foundation: step 2.4
+
+The same structured Claude response now also requires `time_update`, validated by
+`TimePreferenceUpdate`. Actions are keep/set/clear; only set carries a `preference`.
+`TimePreference` has kind, start_time, and end_time. Accepted state stores it as
+`ConversationState.time_preference`; null means unanswered. An explicit any time is
+`kind="any"` with null bounds. It is never inferred from a missing preference.
+
+Kinds morning/afternoon/evening carry null bounds. Their explicit demo meanings live in
+`TIME_PERIODS` in `app/schemas/appointment.py`: morning [00:00,12:00), afternoon [12:00,18:00),
+and evening [18:00,end of day). The prompt receives these same values as `time_periods` on
+each turn; the model does not choose their boundaries. These are application preference
+semantics, not claims about clinic hours. They can move to demo configuration when scheduling
+settings are introduced for slot calculation.
+
+Kind window carries at least one inclusive bound. Equal endpoints mean an exact start time;
+one null endpoint means an unbounded side within the day. The prompt represents strictly
+before/after requests by moving the boundary inward by one second. Times refer to appointment
+starts, not the whole service duration. Native Python `time` values and ISO local-time strings
+are accepted; numeric timestamps, dates, UTC offsets, timezone suffixes, reversed/overnight
+windows, inconsistent kinds/bounds, missing fields, and extra fields are rejected at the adapter
+boundary as LLMError/HTTP 503. Accepted history/preferences remain unchanged after rejection.
+
+Claude proposes updates from the current message. Time-only changes do not infer dates;
+date-only changes keep the time. Ambiguous corrections (for example "at 7" without context),
+disjoint alternatives, mixed period/window constraints, explicit timezone conversions, and
+relative durations are instructed to clear the old preference and ask for one supported
+clinic-local preference. There is no keyword time parser. This interpretation still depends
+on Claude; valid structured output does not prove correct language understanding.
+
+Python merges proposals before checking them, using the request's existing clinic-local clock.
+If the merged date is only today, an exact time or window expires once its inclusive upper
+bound is before now; morning/afternoon expire at their exclusive ends. Python clears only
+the time and returns a Portuguese/English clarification. A partially elapsed window stays
+unchanged. With no date, a future date, or a range extending to future days, the preference
+remains applicable and is preserved. Keep and date corrections also recheck the retained time
+on booking turns. A cleared/past date leaves time available for the replacement date. FAQs
+preserve drafts, escalation clears all preferences, and failed turns are atomic.
+
+Reply priority is escalation, past-date clarification, elapsed-time clarification, dentist
+compatibility clarification, then the model reply. Other valid updates and unresolved dentist
+choices remain stored even when a date/time issue is addressed first. The prompt snapshot and
+opt-in evaluation evidence serialize times as strings. Public API and Streamlit are unchanged.
+No opening-hour, duration, or busy-calendar checks occur yet; a valid preference is not an
+available slot. Completeness checks, calendar reads, selection, confirmation, and booking remain
+later work.
+
+Verification: 243 offline tests, Ruff lint/format checks, and whitespace checks passed.
+Coverage includes schema/adapter rejection, correction/clear/any, inclusive and named-period
+boundaries, clinic-local clocks, retained-time expiration, date corrections, future-day ranges,
+FAQ/isolation/escalation, failure preservation and recovery, API compatibility, and JSON evaluation
+evidence. A five-turn offline demonstration through the real Claude adapter/service with scripted
+SDK responses exercised morning → window correction → elapsed time today/backend clarification
+→ explicit any time → ambiguous correction/clear, preserving service/dentist/date choices.
+No live model or calendar calls were made; these checks do not establish real-model accuracy.
+
+### Foundation: step 2.5
+
+`assess_preferences()` in `app/services/preferences.py` is an ordinary pure Python function
+over the resolved configured service and validated dentist/date/time preferences. It returns
+an immutable internal `PreferenceStatus` dataclass containing missing field codes, conflict
+codes, and a derived `is_complete` property. Missing fields follow service/dentist/date/time
+order. A specific or explicit any dentist counts as answered; an unspecified dentist does
+not, even for a service with only one eligible provider. An explicit any time, named period,
+exact time, or window counts as answered. A date range is sufficient; exact slot selection
+comes later. A specific dentist outside the service's configured eligible list produces
+`service_dentist`. Missing fields and conflicts can coexist. Completeness requires both
+collections to be empty; it neither mutates choices nor infers any preference.
+
+ConversationService invokes the assessment after configured-ID validation, proposal merging,
+past-date clearing, and elapsed-time clearing on each non-escalating booking turn. The helper
+assumes those validations have already run; it is not a standalone date/time or ID validator.
+The same conflict result drives the existing compatibility clarification, centralizing that
+decision. The existing reply priority, stage transitions, API contract, and successful-turn
+history are preserved. Complete preferences still leave the stage at collecting_preferences.
+The result is recalculated each turn and is not duplicated in saved state as a readiness flag.
+
+Normal booking logs now include preferences_complete, missing_preferences, and
+preference_conflicts, using only booleans/fixed field codes. Empty collections log as `none`.
+FAQ and escalation turns skip assessment and log `None` for these three values; they retain
+their existing draft-preservation/reset behavior. Failed turns do not report a successful
+assessment or change accepted state/history. No second Claude call, prompt/output-schema
+change, backend missing-detail question, availability read, or booking operation is added.
+Completeness alone establishes neither opening-hour/duration feasibility nor available slots.
+
+Verification: 271 offline tests, Ruff lint/format checks, and whitespace checks passed. New
+coverage checks each missing field, explicit any versus unanswered, periods/ranges/exact times,
+configured eligibility, simultaneous missing/conflicting values, corrections/clearing,
+post-rejection assessment, logs, isolation, failed-turn recovery, FAQ, and escalation. A four-turn
+offline demonstration through the real Claude adapter/service with scripted SDK responses showed
+missing dentist → complete with explicit any → service/dentist conflict → missing time after
+clearing, while the stage remained collecting_preferences. No live model/calendar calls were made.
+
+### Current implementation: step 2.6
+
+`missing_preference_reply()` in `app/services/preferences.py` selects a Portuguese/English
+question from the first missing field in PreferenceStatus. Service/dentist/date/time order
+is deterministic. It returns no generic question for a complete or conflicting draft. The
+dentist question receives names from the selected service's configured eligible IDs and
+explicitly offers any eligible provider, including when only one provider is eligible.
+The time question explicitly offers any time. Answered preferences are not requested again.
+
+ConversationService uses this question on ordinary incomplete booking turns, after merging
+and validating the current proposals. Reply priority is escalation,
+past-date clarification, elapsed-time clarification, dentist compatibility clarification,
+missing-detail question, then generated reply. An explicit clear proposal for any preference
+skips the generic question, preserving the model's specific ambiguity/withdrawal clarification
+unless higher-priority guidance applies. Clear does not distinguish withdrawal from ambiguity;
+this preserves both within the existing schema. A later keep turn resumes generic collection.
+Complete drafts retain the usual generated summary/phone and collecting_preferences stage;
+there is still no availability check or booking.
+
+The existing single Claude call now also returns nullable `booking_answer` in its internal
+AssistantDecision/LLMResult. For mixed clinic-question/booking messages, the prompt instructs
+Claude to put a concise grounded clinic answer there, without follow-up questions or booking
+claims. When using a backend collection question, Python prepends any nonempty booking_answer
+with a blank line; other routes keep their existing replies. This preserves a clinic answer
+while the backend controls which missing detail is requested. The adapter validates the field's
+presence/type, and evaluation evidence records it. Content accuracy still depends on Claude.
+
+The actual backend question is saved in history, returned through the unchanged API, and
+recorded by the evaluation runner. Standalone FAQs preserve the draft and generated answer.
+Failed turns preserve accepted state/history, escalation clears preferences, and conversations
+remain isolated. No second model call or keyword parser is added. Complete/clear replies must
+include any required clinic answer in their normal reply as instructed in the prompt; higher
+priority validation/escalation guidance remains authoritative.
+
+Verification: 306 offline tests, Ruff lint/format checks, and whitespace checks passed.
+Coverage includes PT/EN question order, details supplied early, configured eligibility/name
+changes, sole-provider behavior, explicit any, complete drafts, clear clarifications, reply
+priority, FAQ, escalation, failed-turn recovery, isolation, API compatibility, actual saved
+history, mixed clinic-answer composition, adapter transport, and evaluation replies. Older
+preference tests now expect backend questions instead of placeholder model text on incomplete
+turns. An eight-turn offline demonstration through the real Claude adapter/service with scripted
+SDK responses exercised all four missing questions, a mixed price inquiry, complete-draft
+fallback, a standalone FAQ, ambiguous correction, and elapsed-time priority. No live model/calendar
+calls were made; interpretation and specific model clarifications remain model-dependent.
 
 ## Scheduling journey
 
@@ -429,14 +572,17 @@ step, explain its request/data flow, verify it, and stop for review.
 1. **Complete:** introduce typed in-memory conversation state (step 1.1) and explicit Python
    workflow stages driven by validated booking intent (step 1.2), behind ConversationService.
    Existing tests verify history, isolation, FAQ behavior, escalation, and failed-turn handling.
-2. **In progress:** structured preference extraction, validation, corrections, and missing-detail
+2. **Implemented:** structured preference extraction, validation, corrections, and missing-detail
    questions. Step 2.1 extracts and validates the service; its follow-up supplies saved stage
    and service explicitly to Claude. **Step 2.2 complete:** dentist preference and configured
    compatibility, including explicit any, clearing, corrections, and per-turn context.
    **Step 2.3 complete:** date/date-range updates, clinic-clock context, and past-date validation.
-   Next, add time-of-day/time-window preferences. Preserve keep/set/clear semantics,
+   **Step 2.4 complete:** time periods, exact/inclusive windows, explicit any time, corrections,
+   and clinic-local elapsed-time validation. **Step 2.5 complete:** deterministic missing-field
+   and compatibility assessment after preference validation. Preserve keep/set/clear semantics,
    including the difference between an unspecified dentist and an explicit "any dentist."
-   Add deterministic completeness checks and missing-detail questions in separate slices.
+   **Step 2.6 complete:** localized backend first-missing-field questions, configured eligible
+   dentist names, and preserved specific clear clarifications. Live-model accuracy remains unproven.
 3. Add mock CalendarService reads and slot calculation; demonstrate real mock-backed offers.
 4. Add selection, exact summary, confirmation, refusal, and draft abandonment with no writes yet.
 5. Add guarded mock booking, recheck, read-back verification, repeat protection, and unknown-result
@@ -487,9 +633,10 @@ Provider mechanics checked while drafting: [Google free/busy](https://developers
 and [event retrieval](https://developers.google.com/workspace/calendar/api/v3/reference/events/get).
 These explain provider operations; the confirmation and safety rules above are our design choices.
 
-The date schema uses the `date` string format supported by
+The date/time schemas use the `date` and `time` string formats supported by
 [Claude structured outputs](https://platform.claude.com/docs/en/build-with-claude/structured-outputs).
-Range ordering, past-date checks, and update application remain application validation rules.
+Range ordering, local-time constraints, past-date/time checks, and update application remain
+application validation rules.
 
 ## Execution record
 
@@ -513,3 +660,44 @@ Range ordering, past-date checks, and update application remain application vali
 - Verified 169 offline tests, Ruff lint/format, whitespace checks, and a scripted four-turn
   adapter/service demonstration. No live model/calendar calls were made for this step.
 - Next for review: time-of-day/time-window extraction. Calendar tools and booking remain later.
+
+### Step 2.4 — 2026-11-18
+
+- Added TimePreference/TimePreferenceUpdate, saved time state, adapter transport, explicit demo
+  period context, prompt instructions, and JSON evaluation evidence within the existing Claude call.
+- Added elapsed-time checking for today-only dates after merging updates, including retained-time
+  rechecking, partially elapsed windows, and backend clarifications. Kept other valid preferences,
+  failed-turn atomicity, FAQ preservation, escalation priority, and the public API.
+- Verified 243 offline tests, Ruff lint/format, whitespace checks, and a scripted five-turn
+  adapter/service demonstration. No live model/calendar calls were made for this step.
+- Implementation and tests committed in `03a15ca` after review.
+- Next for review: deterministic preference completeness checks, with backend missing-detail
+  questions in a separate slice. Calendar tools and booking remain later. V2 remains in progress.
+
+### Step 2.5 — 2026-11-18
+
+- Added a pure assessment function and immutable PreferenceStatus result with ordered missing
+  fields, configured service/dentist conflicts, and derived completeness. Explicit any, named
+  periods, date ranges, exact times, and windows count as answered preferences.
+- Integrated assessment after merged preference validation on booking turns; centralized the
+  existing compatibility decision and added safe log field codes without storing a duplicate flag.
+- Verified 271 offline tests, Ruff lint/format, whitespace checks, and a scripted four-turn
+  adapter/service demonstration. No live model/calendar calls were made for this step.
+- Implementation and tests committed in `5877aa0` after review.
+- Next for review: backend missing-detail questions using the assessment. Calendar reads,
+  selection, confirmation, and booking remain later. V2 remains in progress.
+
+### Step 2.6 — 2026-11-18
+
+- Added PT/EN questions for the first missing service/dentist/date/time preference, using
+  configured eligible dentist names and preserving explicit any versus unanswered choices.
+- Integrated question selection after validation, with existing guidance priority and specific
+  clear clarifications preserved. Added nullable booking_answer to the same Claude response so
+  mixed clinic answers are retained before the backend question; no extra model call or public
+  API field. Saved/returned/evaluated replies match what the patient sees.
+- Verified 306 offline tests, Ruff lint/format, whitespace checks, and a scripted eight-turn
+  adapter/service demonstration. No live model/calendar calls were made for this step.
+- Implementation and tests committed in `3409b72` after review. Each feature commit's exact
+  snapshot independently passed its offline suite and Ruff checks before committing.
+- Next for review: mock CalendarService reads, then slot calculation. Selection, confirmation,
+  and booking remain later. V2 remains in progress.
