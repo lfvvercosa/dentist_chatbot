@@ -1,12 +1,17 @@
 """Shared test helpers. pytest loads this file automatically."""
 
 from collections.abc import Sequence
+from datetime import UTC, datetime
 
 import pytest
 
 from app.core.clinic_config import load_clinic_config
 from app.llm.client import ChatMessage, LLMClient, LLMError, LLMResult
-from app.schemas.appointment import DentistPreferenceUpdate, ServicePreferenceUpdate
+from app.schemas.appointment import (
+    DatePreferenceUpdate,
+    DentistPreferenceUpdate,
+    ServicePreferenceUpdate,
+)
 from app.services.escalation import EscalationService
 
 
@@ -22,6 +27,7 @@ class FakeLLM(LLMClient):
         self.intent = "other"
         self.service_update: ServicePreferenceUpdate | None = None
         self.dentist_update: DentistPreferenceUpdate | None = None
+        self.date_update: DatePreferenceUpdate | None = None
 
     def generate(self, system: str, messages: Sequence[ChatMessage]) -> LLMResult:
         self.calls.append((system, list(messages)))
@@ -37,12 +43,18 @@ class FakeLLM(LLMClient):
             intent=self.intent,
             service_update=self.service_update,
             dentist_update=self.dentist_update,
+            date_update=self.date_update,
         )
 
 
 @pytest.fixture
 def fake_llm() -> FakeLLM:
     return FakeLLM()
+
+
+@pytest.fixture
+def fixed_clock():
+    return lambda: datetime(2026, 11, 17, 12, tzinfo=UTC)
 
 
 @pytest.fixture

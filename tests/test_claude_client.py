@@ -9,7 +9,12 @@ import pytest
 
 from app.llm.claude import ClaudeClient
 from app.llm.client import ChatMessage, LLMError
-from app.schemas.appointment import DentistPreferenceUpdate, ServicePreferenceUpdate
+from app.schemas.appointment import (
+    DatePreference,
+    DatePreferenceUpdate,
+    DentistPreferenceUpdate,
+    ServicePreferenceUpdate,
+)
 from app.schemas.assistant import AssistantDecision
 
 _REQUEST = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
@@ -40,6 +45,7 @@ def make_response(
     intent="other",
     service_update=None,
     dentist_update=None,
+    date_update=None,
 ):
     body = json.dumps(
         {
@@ -56,6 +62,9 @@ def make_response(
                 dentist_update
                 if dentist_update is not None
                 else {"action": "keep", "dentist_id": None}
+            ),
+            "date_update": (
+                date_update if date_update is not None else {"action": "keep", "date_range": None}
             ),
         }
     )
@@ -141,6 +150,17 @@ def test_dentist_update_is_returned_from_the_validated_decision(action, dentist_
     assert result.dentist_update == DentistPreferenceUpdate(action=action, dentist_id=dentist_id)
 
 
+@pytest.mark.parametrize("action", ["set", "keep", "clear"])
+def test_date_update_is_returned_as_validated_calendar_dates(action):
+    date_range = {"start_date": "2026-11-18", "end_date": "2026-11-20"} if action == "set" else None
+    sdk = StubSDK(response=make_response(date_update={"action": action, "date_range": date_range}))
+
+    result = make_client(sdk).generate(system="s", messages=[ChatMessage("user", "My dates")])
+
+    expected = DatePreference(**date_range) if date_range is not None else None
+    assert result.date_update == DatePreferenceUpdate(action=action, date_range=expected)
+
+
 @pytest.mark.parametrize("stop_reason", ["refusal", "max_tokens", "tool_use", "pause_turn", None])
 def test_unusable_stop_reason_raises(stop_reason):
     sdk = StubSDK(response=make_response(stop_reason=stop_reason))
@@ -188,6 +208,7 @@ _VALID_DECISION = {
     "intent": "other",
     "service_update": {"action": "keep", "service_id": None},
     "dentist_update": {"action": "keep", "dentist_id": None},
+    "date_update": {"action": "keep", "date_range": None},
 }
 
 
@@ -218,6 +239,62 @@ _VALID_DECISION = {
         _VALID_DECISION | {"dentist_update": {"action": "set", "dentist_id": "INVALID ID"}},
         _VALID_DECISION | {"dentist_update": {"action": "invent", "dentist_id": None}},
         _VALID_DECISION | {"dentist_update": {"action": "any", "dentist_id": None, "extra": True}},
+        {k: v for k, v in _VALID_DECISION.items() if k != "date_update"},
+        _VALID_DECISION | {"date_update": None},
+        _VALID_DECISION | {"date_update": {"action": "set", "date_range": None}},
+        _VALID_DECISION | {"date_update": {"action": "invent", "date_range": None}},
+        _VALID_DECISION
+        | {
+            "date_update": {
+                "action": "clear",
+                "date_range": {"start_date": "2026-11-18", "end_date": "2026-11-18"},
+            }
+        },
+        _VALID_DECISION
+        | {
+            "date_update": {
+                "action": "keep",
+                "date_range": {"start_date": "2026-11-18", "end_date": "2026-11-18"},
+            }
+        },
+        _VALID_DECISION
+        | {
+            "date_update": {
+                "action": "set",
+                "date_range": {"start_date": "2026-11-20", "end_date": "2026-11-18"},
+            }
+        },
+        _VALID_DECISION
+        | {
+            "date_update": {
+                "action": "set",
+                "date_range": {"start_date": "2026-11-31", "end_date": "2026-11-31"},
+            }
+        },
+        _VALID_DECISION
+        | {
+            "date_update": {
+                "action": "set",
+                "date_range": {"start_date": "tomorrow", "end_date": "tomorrow"},
+            }
+        },
+        _VALID_DECISION
+        | {
+            "date_update": {
+                "action": "set",
+                "date_range": {"start_date": "2026-11-18T00:00:00", "end_date": "2026-11-18"},
+            }
+        },
+        _VALID_DECISION
+        | {
+            "date_update": {
+                "action": "set",
+                "date_range": {"start_date": 1794956400, "end_date": "2026-11-18"},
+            }
+        },
+        _VALID_DECISION
+        | {"date_update": {"action": "set", "date_range": {"start_date": "2026-11-18"}}},
+        _VALID_DECISION | {"date_update": {"action": "clear", "date_range": None, "extra": True}},
     ],
 )
 def test_invalid_decision_is_rejected_without_exposing_content(body):

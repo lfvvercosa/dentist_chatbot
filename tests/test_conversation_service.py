@@ -24,6 +24,7 @@ def test_first_message_is_sent_with_the_system_prompt(service, fake_llm):
         "stage": "chatting",
         "service_id": None,
         "dentist_preference": {"kind": "unspecified", "dentist_id": None},
+        "date_preference": None,
     }
     assert messages == [ChatMessage("user", "hello")]
 
@@ -295,21 +296,25 @@ def test_each_request_receives_saved_state_before_its_own_update(service, fake_l
             "stage": "chatting",
             "service_id": None,
             "dentist_preference": {"kind": "unspecified", "dentist_id": None},
+            "date_preference": None,
         },
         {
             "stage": "collecting_preferences",
             "service_id": "cleaning",
             "dentist_preference": {"kind": "unspecified", "dentist_id": None},
+            "date_preference": None,
         },
         {
             "stage": "collecting_preferences",
             "service_id": "consultation",
             "dentist_preference": {"kind": "unspecified", "dentist_id": None},
+            "date_preference": None,
         },
         {
             "stage": "collecting_preferences",
             "service_id": None,
             "dentist_preference": {"kind": "unspecified", "dentist_id": None},
+            "date_preference": None,
         },
     ]
 
@@ -328,11 +333,13 @@ def test_context_is_scoped_to_the_conversation_and_does_not_promote_patient_text
         "stage": "collecting_preferences",
         "service_id": "cleaning",
         "dentist_preference": {"kind": "unspecified", "dentist_id": None},
+        "date_preference": None,
     }
     assert _sent_state(fake_llm, 2) == {
         "stage": "chatting",
         "service_id": None,
         "dentist_preference": {"kind": "unspecified", "dentist_id": None},
+        "date_preference": None,
     }
     for system, _ in fake_llm.calls:
         assert patient_text not in system
@@ -354,6 +361,7 @@ def test_rejected_update_does_not_change_context_or_history_on_the_next_turn(ser
         "stage": "collecting_preferences",
         "service_id": "cleaning",
         "dentist_preference": {"kind": "unspecified", "dentist_id": None},
+        "date_preference": None,
     }
     assert ChatMessage("user", "Rejected message") not in fake_llm.calls[2][1]
 
@@ -373,4 +381,5 @@ def test_next_request_sees_state_reset_by_escalation(service, fake_llm):
         "stage": "chatting",
         "service_id": None,
         "dentist_preference": {"kind": "unspecified", "dentist_id": None},
+        "date_preference": None,
     }

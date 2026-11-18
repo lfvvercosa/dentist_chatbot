@@ -3,6 +3,9 @@
 import logging
 import time
 import uuid
+from collections.abc import Callable
+from datetime import UTC, date, datetime
+from zoneinfo import ZoneInfo
 
 from app.core.clinic_config import ClinicConfig
 from app.llm.client import ChatMessage, LLMClient, LLMError, ResponseLanguage
@@ -26,12 +29,16 @@ class ConversationService:
         system_prompt: str,
         escalation: EscalationService,
         clinic: ClinicConfig,
+        *,
+        clock: Callable[[], datetime] | None = None,
     ):
         self._llm = llm
         self._system_prompt = system_prompt
         self._escalation = escalation
         self._services = {service.id: service for service in clinic.services}
         self._dentists = {dentist.id: dentist for dentist in clinic.dentists}
+        self._timezone = ZoneInfo(clinic.timezone)
+        self._clock = clock or _utc_now
         self._states: dict[str, ConversationState] = {}
 
     def handle_message(self, conversation_id: str, message: str) -> str:
@@ -43,12 +50,18 @@ class ConversationService:
         # personal data (LGPD) and never goes into logs.
         start = time.perf_counter()
         try:
-            turn_prompt = build_turn_prompt(self._system_prompt, state)
+            now = self._clock()
+            if now.utcoffset() is None:
+                raise ValueError("the conversation clock must return a timezone-aware datetime")
+            now = now.astimezone(self._timezone)
+            turn_prompt = build_turn_prompt(self._system_prompt, state, now=now)
             result = self._llm.generate(turn_prompt, [*state.messages, user_message])
-            # Validate both proposals before changing state or saving this turn.
+            # Validate proposals before changing state or saving this turn.
             service_id = state.service_id
             dentist_preference = state.dentist_preference
+            date_preference = state.date_preference
             conflict_reply = None
+            date_reply = None
             if result.escalation == "none" and result.intent == "booking":
                 update = result.service_update
                 if update is not None and update.action == "set":
@@ -69,11 +82,22 @@ class ConversationService:
                         dentist_preference = DentistPreference(kind="any")
                     elif dentist_update.action == "clear":
                         dentist_preference = DentistPreference()
+                date_update = result.date_update
+                if date_update is not None:
+                    if date_update.action == "set":
+                        date_preference = date_update.date_range
+                    elif date_update.action == "clear":
+                        date_preference = None
+                if date_preference is not None and date_preference.start_date < now.date():
+                    date_preference = None
+                    date_reply = _past_date_reply(now.date(), result.language)
                 conflict_reply = self._dentist_conflict_reply(
                     service_id, dentist_preference, result.language
                 )
             guidance = self._escalation.reply(result.escalation, result.language)
-            reply = guidance if guidance is not None else conflict_reply or result.text
+            reply = (
+                guidance if guidance is not None else date_reply or conflict_reply or result.text
+            )
         except LLMError as exc:
             logger.warning(
                 "chat request_id=%s conversation_id=%s outcome=error latency_ms=%d error=%r",
@@ -90,10 +114,12 @@ class ConversationService:
             state.stage = "chatting"
             state.service_id = None
             state.dentist_preference = DentistPreference()
+            state.date_preference = None
         elif result.intent == "booking":
             state.stage = "collecting_preferences"
             state.service_id = service_id
             state.dentist_preference = dentist_preference
+            state.date_preference = date_preference
 
         logger.info(
             "chat request_id=%s conversation_id=%s outcome=ok latency_ms=%d model=%s "
@@ -137,6 +163,24 @@ class ConversationService:
             "Would you prefer to change the dentist or the service? "
             "I cannot check availability or book appointments yet."
         )
+
+
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
+def _past_date_reply(today: date, language: ResponseLanguage) -> str:
+    if language == "pt":
+        return (
+            "A data ou o início do intervalo informado já passou. "
+            f"Pode informar uma data ou intervalo a partir de {today.isoformat()}? "
+            "Ainda não posso consultar horários nem agendar."
+        )
+    return (
+        "The date or the start of the requested range is in the past. "
+        f"Could you choose a date or range starting on or after {today.isoformat()}? "
+        "I cannot check availability or book appointments yet."
+    )
 
 
 def _elapsed_ms(start: float) -> int:

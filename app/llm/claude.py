@@ -72,6 +72,7 @@ class ClaudeClient(LLMClient):
             intent=decision.intent,
             service_update=decision.service_update,
             dentist_update=decision.dentist_update,
+            date_update=decision.date_update,
         )
 
 

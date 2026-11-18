@@ -20,17 +20,24 @@ Streamlit  →  FastAPI /chat  →  ConversationService  →  Claude
 See [docs/v1-scope.md](docs/v1-scope.md) for the completed checklist and
 [docs/v1-decisions.md](docs/v1-decisions.md) for design choices, lessons, and limitations.
 
-V2 development has started; see [docs/v2-scope.md](docs/v2-scope.md). Steps 1.1–2.2 introduce typed,
-in-memory conversation state, booking intent, and service/dentist preference extraction. Each Claude
-request includes the saved stage, service, and dentist preference alongside the separate history.
+V2 development has started; see [docs/v2-scope.md](docs/v2-scope.md). Steps 1.1–2.3 introduce typed,
+in-memory conversation state, booking intent, and service/dentist/date preference extraction.
+Each Claude request includes saved preferences and the current time in the configured clinic
+timezone, alongside the separate message history.
 A validated intent moves the workflow from
 `chatting` to `collecting_preferences`; FAQs preserve a pending booking stage, while escalation
-takes priority and clears both preferences. Claude proposes keeping, setting, or clearing a
+takes priority and clears saved preferences. Claude proposes keeping, setting, or clearing a
 service or dentist, or explicitly accepting any eligible dentist. Python validates the IDs and
 checks the merged service/dentist pair against clinic configuration. An incompatible pair gets
 a clarification with eligible dentists; the requested choices remain until the patient changes
-them. An unanswered preference remains distinct from "any dentist." Date/time extraction,
-calendar access, and booking are not implemented yet.
+them. An unanswered preference remains distinct from "any dentist."
+
+Dates use keep/set/clear updates and one inclusive start/end range; a single day has equal
+endpoints. Claude interprets relative dates from the supplied clock and is instructed to ask
+about ambiguous dates. Python rejects past dates, clears the date preference, and asks for a
+replacement without changing service/dentist choices. Today is allowed as a date preference;
+same-day times are not checked yet. Time-of-day extraction, calendar access, and booking are
+not implemented yet. Date validation does not check clinic availability.
 
 V2 will add the remaining preference extraction and scheduling workflow, followed by
 CalendarService (mock first, then Google test calendars), including confirmation, availability

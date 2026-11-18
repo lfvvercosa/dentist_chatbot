@@ -6,7 +6,12 @@ import pytest
 from pydantic import ValidationError
 
 from app.llm.client import ChatMessage, LLMError
-from app.schemas.appointment import DentistPreferenceUpdate, ServicePreferenceUpdate
+from app.schemas.appointment import (
+    DatePreference,
+    DatePreferenceUpdate,
+    DentistPreferenceUpdate,
+    ServicePreferenceUpdate,
+)
 from app.services.conversation import ConversationService
 from scripts.eval_v1 import EvalCase, EvalSuite, RecordingLLM, run_case
 
@@ -86,6 +91,7 @@ def test_escalation_check_compares_the_model_decision_with_expected_level(
         "intent": "other",
         "service_update": None,
         "dentist_update": None,
+        "date_update": None,
     }
     assert match["turns"][0]["reply"] == escalation_service.reply("urgent", "pt")
     assert match["review"]["verdict"] == "pending"  # Classification check is not full review.
@@ -159,10 +165,40 @@ def test_evaluation_saves_the_exact_prompt_with_state_for_each_turn(
             "stage": "chatting",
             "service_id": None,
             "dentist_preference": {"kind": "unspecified", "dentist_id": None},
+            "date_preference": None,
         },
         {
             "stage": "collecting_preferences",
             "service_id": "cleaning",
             "dentist_preference": {"kind": "unspecified", "dentist_id": None},
+            "date_preference": None,
         },
     ]
+
+
+def test_evaluation_saves_json_dates_and_the_exact_clinic_clock_context(
+    fake_llm, escalation_service, clinic_config, fixed_clock
+):
+    fake_llm.intent = "booking"
+    fake_llm.date_update = DatePreferenceUpdate(
+        action="set", date_range=DatePreference(start_date="2026-11-18", end_date="2026-11-20")
+    )
+    llm = RecordingLLM(fake_llm)
+    service = ConversationService(
+        llm, "prompt", escalation_service, clinic_config, clock=fixed_clock
+    )
+    case = EvalCase(
+        id="dates", messages=["Between tomorrow and Friday"], criteria=["Collect dates"]
+    )
+
+    result = run_case(case, service, llm)
+
+    turn = result["turns"][0]
+    assert turn["decision"]["date_update"] == {
+        "action": "set",
+        "date_range": {"start_date": "2026-11-18", "end_date": "2026-11-20"},
+    }
+    context = json.loads(turn["system_prompt"].rsplit("\n", 1)[1])
+    assert context["current_time"]["today"] == "2026-11-17"
+    assert context["current_time"]["timezone"] == clinic_config.timezone
+    json.dumps(result)

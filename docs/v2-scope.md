@@ -13,14 +13,15 @@ proposal recorded in `c2708cc`; that proposal did not add any application functi
   (step 2.1, `6ff4ed3`). Each Claude request receives the saved stage/service explicitly
   (`43eb391`). Step 2.2 (`eb406a9`) adds dentist preference extraction and configured compatibility checks,
   including corrections and the distinction between unanswered and any eligible dentist.
-  The latest code verification passed 132 offline tests and Ruff checks.
-- **Partial:** structured appointment preferences. Service and dentist are extracted; date,
-  time, and completeness checks remain to be implemented.
+  Step 2.3 adds dates/date ranges, explicit clinic-clock context, corrections, clearing, and
+  past-date validation. The latest code verification passed 169 offline tests and Ruff checks.
+- **Partial:** structured appointment preferences. Service, dentist, and date are extracted;
+  time preferences and deterministic completeness checks remain to be implemented.
 - **Not started:** CalendarService, availability, slot selection, confirmation, booking,
   verification, duplicate protection, Google Calendar integration, and V2 release validation.
-- **Next small implementation step:** date/date-range extraction, with explicit current-time
-  context in the clinic timezone and clarification of ambiguous requests. Time preferences
-  follow separately; the existing API and booking limitation remain.
+- **Next small implementation step:** time-of-day/time-window preference extraction and
+  validation in the clinic timezone. Calendar availability and booking follow in later steps;
+  the existing API and booking limitation remain.
 
 V1 remains the completed release tagged `v1.0` at `50cc705`, with package/API versions
 `1.0.0` and 64 release tests. Committing V2 work does not complete or release V2.
@@ -235,7 +236,7 @@ Verification: 96 offline tests plus passing Ruff and whitespace checks. Tests co
 snapshots, conversation isolation, separation of patient text, rejected updates, escalation
 resets, and per-turn evaluation evidence. No live model evaluation was run for this improvement.
 
-### Current implementation: step 2.2
+### Foundation: step 2.2
 
 The same Claude call also requires `dentist_update`, validated by `DentistPreferenceUpdate`.
 Actions are keep, set, clear, and any; only set carries a configured dentist ID. Keep preserves
@@ -269,6 +270,52 @@ JSON-serializable evaluation evidence. An offline demonstration through the real
 with scripted SDK responses verified consultation with Bruno → cleaning correction → backend
 clarification offering Ana → explicit any preference. It made three stub calls and no network
 calls. No formal live behavior evaluation was run for this step; tests verify code with fakes.
+
+### Current implementation: step 2.3
+
+The same structured Claude response now also requires `date_update`, with keep/set/clear
+actions and a nullable date_range. Set requires a `DatePreference` containing start_date and
+end_date; keep and clear require null. The range is inclusive, and a single day uses equal
+endpoints. Values become Python `date` objects, not timestamps. Pydantic validates calendar
+dates, rejects timestamp inputs, and requires start_date <= end_date. Invalid model output
+becomes LLMError/HTTP 503 without changing accepted preferences or history.
+
+ConversationService reads an injectable timezone-aware clock once before calling Claude,
+converts it to the configured clinic timezone, and uses that request-time snapshot throughout
+the turn. `build_turn_prompt()` supplies current_time (timezone, local_datetime, today) and
+the saved date_preference alongside stage/service/dentist. Production defaults to the UTC
+system clock; tests use fixed clocks. No new configuration or dependency is needed. The clinic
+timezone remains `America/Sao_Paulo`; it is not inferred from the developer's location.
+
+Claude resolves unambiguous relative dates using that context. Corrections replace a prior
+range; keep preserves it. Clear removes a withdrawn choice or a superseded choice when the
+new request is ambiguous, reversed, disjoint, or recurring; the prompt instructs Claude to ask
+for the missing information or one continuous range. No natural-language date keyword parser
+is added. Recognition and ambiguity handling still depend on the model's interpretation.
+
+Python accepts today or later as date preferences. If a proposed or retained range starts
+before the clinic-local current date, it clears the entire date preference and returns a
+Portuguese/English clarification. It does not move the date to another week/year or shorten
+a partially past range. Other valid service/dentist updates remain accepted. Date validity
+is checked again on each booking turn, so a saved date can expire between messages. FAQs
+preserve the draft; escalation clears all preferences. Provider failures and unknown configured
+IDs preserve the whole accepted state. Reply priority is escalation, past-date clarification,
+service/dentist compatibility clarification, then the model's reply; unresolved dentist
+preferences remain stored when a past-date issue is addressed first.
+
+The state snapshot and opt-in evaluation evidence serialize dates as strings. The public API
+and Streamlit remain unchanged. Date validation does not inspect availability or opening hours.
+Time-of-day extraction and future-time checks, bounded calendar search settings, availability,
+and booking remain later steps. No default search horizon is invented in this extraction slice.
+
+Verification: 169 offline tests, Ruff lint/format checks, and whitespace checks passed.
+Coverage includes adapter schema validation, one-day/range updates, corrections and clearing,
+clinic timezone/date rollover, today/past/partially past ranges, isolation, escalation,
+atomic failed-turn handling, API compatibility, and JSON evaluation evidence. A four-turn
+offline demonstration through the real Claude adapter with scripted SDK responses verified
+tomorrow → range correction → ambiguous correction/clear → backend past-date clarification,
+preserving service and dentist. No live model or calendar calls were made; these checks do
+not establish the accuracy of real model date interpretation.
 
 ## Scheduling journey
 
@@ -385,8 +432,9 @@ step, explain its request/data flow, verify it, and stop for review.
 2. **In progress:** structured preference extraction, validation, corrections, and missing-detail
    questions. Step 2.1 extracts and validates the service; its follow-up supplies saved stage
    and service explicitly to Claude. **Step 2.2 complete:** dentist preference and configured
-   compatibility, including explicit any, clearing, corrections, and per-turn context. Next,
-   add date/date range and time/time window, one field at a time. Preserve keep/set/clear semantics,
+   compatibility, including explicit any, clearing, corrections, and per-turn context.
+   **Step 2.3 complete:** date/date-range updates, clinic-clock context, and past-date validation.
+   Next, add time-of-day/time-window preferences. Preserve keep/set/clear semantics,
    including the difference between an unspecified dentist and an explicit "any dentist."
    Add deterministic completeness checks and missing-detail questions in separate slices.
 3. Add mock CalendarService reads and slot calculation; demonstrate real mock-backed offers.
@@ -439,6 +487,10 @@ Provider mechanics checked while drafting: [Google free/busy](https://developers
 and [event retrieval](https://developers.google.com/workspace/calendar/api/v3/reference/events/get).
 These explain provider operations; the confirmation and safety rules above are our design choices.
 
+The date schema uses the `date` string format supported by
+[Claude structured outputs](https://platform.claude.com/docs/en/build-with-claude/structured-outputs).
+Range ordering, past-date checks, and update application remain application validation rules.
+
 ## Execution record
 
 - Step 2.2: added validated dentist updates, explicit accepted dentist preference, and Python
@@ -450,3 +502,14 @@ These explain provider operations; the confirmation and safety rules above are o
   Git-ignored; personal `temp/` notes and `.claude/` commands remain untracked.
 - Next for review: date/date-range extraction in the configured clinic timezone, followed by
   time preferences in a separate step. V2 remains in progress.
+
+### Step 2.3 — 2026-11-17
+
+- Added DatePreference/DatePreferenceUpdate, date state, adapter transport, prompt instructions,
+  and JSON evaluation evidence. Kept the existing single Claude call and public chat contract.
+- Added an injectable aware clock, clinic-local request context, today/past-date validation,
+  expired-range rechecking, and a backend-rendered clarification without changing other valid
+  preferences. Extended offline tests and updated README/CLAUDE.md.
+- Verified 169 offline tests, Ruff lint/format, whitespace checks, and a scripted four-turn
+  adapter/service demonstration. No live model/calendar calls were made for this step.
+- Next for review: time-of-day/time-window extraction. Calendar tools and booking remain later.

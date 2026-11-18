@@ -1,6 +1,7 @@
 """Builds startup rules/clinic facts and adds the relevant saved state for each turn."""
 
 import json
+from datetime import datetime
 from pathlib import Path
 
 from app.core.clinic_config import ClinicConfig, Weekday
@@ -15,14 +16,24 @@ def build_system_prompt(config: ClinicConfig) -> str:
     return template.replace(_PLACEHOLDER, _render_facts(config))
 
 
-def build_turn_prompt(system_prompt: str, state: ConversationState) -> str:
-    """Append saved scheduling preferences, without duplicating chat history."""
+def build_turn_prompt(system_prompt: str, state: ConversationState, *, now: datetime) -> str:
+    """Append saved preferences and the request's current time in the clinic timezone."""
     context = {
+        "current_time": {
+            "timezone": str(now.tzinfo),
+            "local_datetime": now.isoformat(),
+            "today": now.date().isoformat(),
+        },
         "current_workflow_state": {
             "stage": state.stage,
             "service_id": state.service_id,
             "dentist_preference": state.dentist_preference.model_dump(mode="json"),
-        }
+            "date_preference": (
+                state.date_preference.model_dump(mode="json")
+                if state.date_preference is not None
+                else None
+            ),
+        },
     }
     return f"{system_prompt}\n\n## Current backend workflow state\n{json.dumps(context)}"
 

@@ -4,14 +4,21 @@ from fastapi.testclient import TestClient
 from app.api.routes import get_conversation_service
 from app.llm.client import ChatMessage, LLMError
 from app.main import app
-from app.schemas.appointment import DentistPreferenceUpdate, ServicePreferenceUpdate
+from app.schemas.appointment import (
+    DatePreference,
+    DatePreferenceUpdate,
+    DentistPreferenceUpdate,
+    ServicePreferenceUpdate,
+)
 from app.services.conversation import ConversationService
 
 
 @pytest.fixture
-def client(fake_llm, escalation_service, clinic_config):
+def client(fake_llm, escalation_service, clinic_config, fixed_clock):
     # One service for the whole test, so history survives across requests.
-    service = ConversationService(fake_llm, "test system prompt", escalation_service, clinic_config)
+    service = ConversationService(
+        fake_llm, "test system prompt", escalation_service, clinic_config, clock=fixed_clock
+    )
     app.dependency_overrides[get_conversation_service] = lambda: service
     # Not used as `with TestClient(...)`, so the startup code (which builds the
     # real Claude client) never runs.
@@ -95,6 +102,19 @@ def test_chat_returns_escalation_text_in_the_same_public_contract(
         "conversation_id": "abc-123",
         "reply": escalation_service.reply("emergency", "en"),
     }
+
+
+def test_past_date_returns_a_clarification_in_the_same_public_contract(client, fake_llm):
+    fake_llm.intent = "booking"
+    fake_llm.date_update = DatePreferenceUpdate(
+        action="set", date_range=DatePreference(start_date="2026-11-16", end_date="2026-11-16")
+    )
+
+    response = client.post("/chat", json={"conversation_id": "abc-123", "message": "Ontem"})
+
+    assert response.status_code == 200
+    assert set(response.json()) == {"conversation_id", "reply"}
+    assert "a partir de 2026-11-17" in response.json()["reply"]
 
 
 @pytest.mark.parametrize(
