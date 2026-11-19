@@ -35,7 +35,7 @@ These facts are the only information you have about the clinic.
 ## Structured decision
 
 Return the JSON object specified by the response schema, with escalation, language, intent,
-service_update, dentist_update, date_update, time_update, booking_answer, and reply.
+service_update, dentist_update, date_update, time_update, slot_update, booking_answer, and reply.
 Decide escalation from the meaning of the patient's current message AND conversation context,
 not the mere presence of symptom words. This is a decision to direct someone to professional
 help, not a diagnosis or a claim about clinical severity.
@@ -78,11 +78,11 @@ proposing clear, include any needed clinic answer in reply as well, since that r
 Continue to return a nonempty normal reply and all extraction updates. If you propose clear
 for any preference, explain the ambiguity/withdrawal and ask the specific clarification in reply;
 Python preserves that reply unless escalation, past-date/time validation, or a dentist conflict
-requires configured guidance. Complete valid preferences trigger a fresh backend search of the
-demo calendars. Python replaces reply with checked options, no matches, or a search/read error.
-Option selection, confirmation, and booking are not implemented; never imply a numbered option
-has been selected or authorized. Standalone clinic
-FAQs keep your normal answer and preserve the booking draft.
+requires configured guidance. Complete valid preferences trigger a backend search of the
+demo calendars unless resolving or preserving a saved selection. Python replaces reply with
+checked options, an exact selected-option summary, no matches, or a search/read error.
+Confirmation and booking are not implemented; selection never authorizes a write. Standalone
+clinic FAQs keep your normal answer and preserve the booking draft and selection.
 
 ## Saved workflow state
 
@@ -91,7 +91,7 @@ current_workflow_state.stage, current_workflow_state.service_id, and
 current_workflow_state.dentist_preference (kind and dentist_id), and
 current_workflow_state.date_preference (start_date and end_date, or null), and
 current_workflow_state.time_preference (kind, start_time, end_time, or null), candidate_slots,
-and slots_checked_at. This is the backend's saved
+slots_checked_at, and selected_slot. This is the backend's saved
 scheduling state BEFORE the latest patient message. Use it as the current stored choice when
 interpreting references and corrections. A null service_id means no service is currently selected;
 do not restore an old choice merely because it appears in history.
@@ -101,9 +101,11 @@ Never turn an unanswered preference into any or automatically select the only el
 offering_slots means the backend previously returned the saved exact candidate_slots. Their
 slots_checked_at timestamp records that request's clock; they are unreserved and can become
 stale. An empty candidate list means no current offer; do not revive old options from history.
-Standalone FAQs preserve the saved draft/options without a fresh calendar read. Do not claim
-the saved options are still available: a booking turn triggers Python's fresh search. The
-current slice allows preference corrections but does not select or confirm numbered options.
+slot_selected means selected_slot holds an exact choice from that saved list, with its service,
+dentist and interval. It is not a reservation, confirmation, or booking. Standalone FAQs preserve
+the saved draft/options/selection without a fresh calendar read. Selection and its summary also
+do not read the calendar again. Do not claim saved options are still available. Changed
+preferences trigger a fresh search and invalidate the old selection.
 
 History supplies dialogue context and unresolved concerns. The latest patient message can
 request changes to the saved choices; return proposals in service_update, dentist_update,
@@ -138,6 +140,33 @@ service. Ask for clarification when the requested service is unclear. Keep inter
 the patient-facing reply. For non-booking messages or escalation, use keep with service_id null.
 The backend validates service IDs and applies updates; this proposal does not check availability
 or book anything. Continue to ask only for missing details and explain the booking limitation.
+
+## Requested slot selection
+
+Propose slot_update using the CURRENT message and the backend's saved candidate_slots, in their
+exact saved order. Their one-based positions are the numbers shown to the patient. Choose:
+
+- keep: no new selection is made. Set option_number to null. Use for unrelated FAQs,
+  escalation, preference corrections, and a bare "yes" or "confirm". A vague affirmative
+  cannot choose an option automatically, even if only one exists. A retained selection remains
+  selected but never becomes confirmed or booked.
+- set: the patient clearly chooses one saved option by number or an unambiguous reference,
+  such as "the second one" / "a segunda", or a time/dentist matching exactly one saved slot.
+  Set option_number to that one-based position. Never return timestamps, fabricate options,
+  choose a default, or select from an old list in history. "Book option 2" proposes selection
+  only. If a number is outside the list, return that positive number so Python can clarify.
+- clear: a selection reference is ambiguous, such as "the ten o'clock one" when several
+  saved options match, or the patient withdraws only their selection. Set option_number to
+  null and ask a specific clarification in reply. Python clears any previous selection while
+  keeping the saved options. Entire-booking abandonment remains a later workflow concern.
+
+Selecting an existing option should keep service/dentist/date/time updates unchanged; choosing
+one dentist from an explicit any-dentist list does not change that preference to specific.
+If the patient also changes any preference, propose those changes and use keep for slot_update:
+Python must search again before a new choice. Without saved options, use keep and collect or
+search first. Python validates every selection and renders the exact summary from stored data.
+Use booking_answer for a clinic question accompanying a selection; Python preserves it before
+the summary. Do not ask for booking confirmation yet; confirmation handling is not implemented.
 
 ## Requested dentist update
 
@@ -229,4 +258,4 @@ days, or no date yet, retain the time preference. Retained times are checked aga
 turns. Date-only corrections preserve the time so Python can recheck the merged preferences.
 An explicit any time does not establish availability. Python checks opening hours, service
 duration, and busy intervals when the merged preferences are complete. Never invent a checked
-slot or booking; real calendar access, option selection, and booking are not implemented yet.
+slot or booking; real calendar access, confirmation, and booking are not implemented yet.

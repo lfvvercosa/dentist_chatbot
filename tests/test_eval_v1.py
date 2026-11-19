@@ -11,6 +11,7 @@ from app.schemas.appointment import (
     DatePreferenceUpdate,
     DentistPreferenceUpdate,
     ServicePreferenceUpdate,
+    SlotSelectionUpdate,
     TimePreference,
     TimePreferenceUpdate,
 )
@@ -179,6 +180,7 @@ def test_escalation_check_compares_the_model_decision_with_expected_level(
         "date_update": None,
         "time_update": None,
         "booking_answer": None,
+        "slot_update": None,
     }
     assert match["turns"][0]["reply"] == escalation_service.reply("urgent", "pt")
     assert match["review"]["verdict"] == "pending"  # Classification check is not full review.
@@ -274,6 +276,7 @@ def test_evaluation_saves_the_exact_prompt_with_state_for_each_turn(
             "time_preference": None,
             "candidate_slots": [],
             "slots_checked_at": None,
+            "selected_slot": None,
         },
         {
             "stage": "collecting_preferences",
@@ -283,6 +286,7 @@ def test_evaluation_saves_the_exact_prompt_with_state_for_each_turn(
             "time_preference": None,
             "candidate_slots": [],
             "slots_checked_at": None,
+            "selected_slot": None,
         },
     ]
 
@@ -347,3 +351,58 @@ def test_evaluation_serializes_time_proposals_and_saved_time_context(
     context = json.loads(second["system_prompt"].rsplit("\n", 1)[1])
     assert context["current_workflow_state"]["time_preference"] == preference
     json.dumps(result)
+
+
+def test_evaluation_records_selection_proposal_summary_and_selected_snapshot(
+    fake_llm, escalation_service, clinic_config, fixed_clock, availability_factory, monkeypatch
+):
+    fake_llm.intent = "booking"
+    fake_llm.service_update = ServicePreferenceUpdate(action="set", service_id="consultation")
+    fake_llm.dentist_update = DentistPreferenceUpdate(action="set", dentist_id="ana")
+    fake_llm.date_update = DatePreferenceUpdate(
+        action="set", date_range=DatePreference(start_date="2026-11-18", end_date="2026-11-18")
+    )
+    fake_llm.time_update = TimePreferenceUpdate(
+        action="set", preference=TimePreference(kind="morning", start_time=None, end_time=None)
+    )
+    original_generate = fake_llm.generate
+
+    def respond(system, messages):
+        if len(fake_llm.calls) == 1:
+            for field in ("service_update", "dentist_update", "date_update", "time_update"):
+                setattr(fake_llm, field, None)
+            fake_llm.slot_update = SlotSelectionUpdate(action="set", option_number=2)
+        elif len(fake_llm.calls) == 2:
+            fake_llm.intent = "other"
+            fake_llm.slot_update = None
+        return original_generate(system, messages)
+
+    monkeypatch.setattr(fake_llm, "generate", respond)
+    llm = RecordingLLM(fake_llm)
+    service = ConversationService(
+        llm,
+        "base",
+        escalation_service,
+        clinic_config,
+        clock=fixed_clock,
+        availability=availability_factory(clinic_config),
+    )
+    report = run_case(
+        EvalCase(
+            id="selection",
+            messages=["Complete", "Option 2", "Opening hours?"],
+            criteria=["Summarize the exact selected option"],
+        ),
+        service,
+        llm,
+    )
+    first, selected, faq = report["turns"]
+    assert selected["decision"]["slot_update"] == {"action": "set", "option_number": 2}
+    assert selected["reply"].startswith("Opção de demonstração selecionada")
+    offers = json.loads(selected["system_prompt"].rsplit("\n", 1)[1])["current_workflow_state"]
+    snapshot = json.loads(faq["system_prompt"].rsplit("\n", 1)[1])["current_workflow_state"]
+    assert snapshot["selected_slot"] == offers["candidate_slots"][1]
+    assert snapshot["stage"] == "slot_selected"
+    assert fake_llm.calls[2][1][-2] == ChatMessage("assistant", selected["reply"])
+    assert "Opções verificadas" in first["reply"]
+    json.dumps(report)

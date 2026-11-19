@@ -162,3 +162,20 @@ class AppointmentSlot(BaseModel):
     service_id: Slug
     dentist_id: Slug
     interval: TimeInterval
+
+
+class SlotSelectionUpdate(BaseModel):
+    """A selection proposal referring to the one-based number in the saved offer list."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    action: Literal["keep", "set", "clear"]
+    option_number: int | None = Field(
+        strict=True, ge=1, description="One-based saved option for set; null otherwise"
+    )
+
+    @model_validator(mode="after")
+    def require_number_only_for_set(self) -> "SlotSelectionUpdate":
+        if (self.action == "set") != (self.option_number is not None):
+            raise ValueError("only set requires an option_number")
+        return self

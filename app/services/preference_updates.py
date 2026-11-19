@@ -22,6 +22,7 @@ class PreferenceResolution:
     status: PreferenceStatus
     clarification: str | None
     has_clear_update: bool
+    preferences_changed: bool
     eligible_dentists: tuple[str, ...]
 
 
@@ -39,6 +40,7 @@ class PreferenceResolver:
                 "stage": "collecting_preferences",
                 "candidate_slots": [],
                 "slots_checked_at": None,
+                "selected_slot": None,
             }
         )
         self._merge_updates(draft, result)
@@ -74,6 +76,15 @@ class PreferenceResolver:
                 )
             ),
             eligible_dentists=eligible,
+            preferences_changed=any(
+                getattr(draft, name) != getattr(state, name)
+                for name in (
+                    "service_id",
+                    "dentist_preference",
+                    "date_preference",
+                    "time_preference",
+                )
+            ),
         )
 
     def _merge_updates(self, draft: ConversationState, result: LLMResult) -> None:

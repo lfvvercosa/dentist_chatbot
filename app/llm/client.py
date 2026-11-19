@@ -9,6 +9,7 @@ from app.schemas.appointment import (
     DatePreferenceUpdate,
     DentistPreferenceUpdate,
     ServicePreferenceUpdate,
+    SlotSelectionUpdate,
     TimePreferenceUpdate,
 )
 
@@ -36,6 +37,7 @@ class LLMResult:
     dentist_update: DentistPreferenceUpdate | None = None
     date_update: DatePreferenceUpdate | None = None
     time_update: TimePreferenceUpdate | None = None
+    slot_update: SlotSelectionUpdate | None = None
     booking_answer: str | None = None
 
 

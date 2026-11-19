@@ -18,6 +18,7 @@ from app.services.slot_offers import (
     slot_offer_reply,
     slot_search_error_reply,
 )
+from app.services.slot_selection import resolve_slot_selection
 
 AvailabilityOutcome = Literal["not_searched", "found", "none_found", "invalid_search", "read_error"]
 
@@ -58,6 +59,7 @@ class SchedulingWorkflow:
                     "time_preference": None,
                     "candidate_slots": [],
                     "slots_checked_at": None,
+                    "selected_slot": None,
                 }
             )
             return TurnOutcome(next_state=cleared, reply=guidance)
@@ -74,7 +76,15 @@ class SchedulingWorkflow:
         availability_outcome: AvailabilityOutcome = "not_searched"
         if reply is None and not resolved.has_clear_update:
             if resolved.status.is_complete:
-                reply, availability_outcome = self._search_slots(draft, result, now)
+                selection = (
+                    resolve_slot_selection(state, result, self._clinic, now)
+                    if not resolved.preferences_changed
+                    else None
+                )
+                if selection is not None:
+                    draft, reply = selection
+                else:
+                    reply, availability_outcome = self._search_slots(draft, result, now)
             else:
                 reply = missing_preference_reply(
                     resolved.status, result.language, eligible_dentists=resolved.eligible_dentists

@@ -36,6 +36,7 @@ def test_first_message_is_sent_with_the_system_prompt(service, fake_llm):
         "time_preference": None,
         "candidate_slots": [],
         "slots_checked_at": None,
+        "selected_slot": None,
     }
     assert messages == [ChatMessage("user", "hello")]
 
@@ -311,6 +312,7 @@ def test_each_request_receives_saved_state_before_its_own_update(service, fake_l
             "time_preference": None,
             "candidate_slots": [],
             "slots_checked_at": None,
+            "selected_slot": None,
         },
         {
             "stage": "collecting_preferences",
@@ -320,6 +322,7 @@ def test_each_request_receives_saved_state_before_its_own_update(service, fake_l
             "time_preference": None,
             "candidate_slots": [],
             "slots_checked_at": None,
+            "selected_slot": None,
         },
         {
             "stage": "collecting_preferences",
@@ -329,6 +332,7 @@ def test_each_request_receives_saved_state_before_its_own_update(service, fake_l
             "time_preference": None,
             "candidate_slots": [],
             "slots_checked_at": None,
+            "selected_slot": None,
         },
         {
             "stage": "collecting_preferences",
@@ -338,6 +342,7 @@ def test_each_request_receives_saved_state_before_its_own_update(service, fake_l
             "time_preference": None,
             "candidate_slots": [],
             "slots_checked_at": None,
+            "selected_slot": None,
         },
     ]
 
@@ -360,6 +365,7 @@ def test_context_is_scoped_to_the_conversation_and_does_not_promote_patient_text
         "time_preference": None,
         "candidate_slots": [],
         "slots_checked_at": None,
+        "selected_slot": None,
     }
     assert _sent_state(fake_llm, 2) == {
         "stage": "chatting",
@@ -369,6 +375,7 @@ def test_context_is_scoped_to_the_conversation_and_does_not_promote_patient_text
         "time_preference": None,
         "candidate_slots": [],
         "slots_checked_at": None,
+        "selected_slot": None,
     }
     for system, _ in fake_llm.calls:
         assert patient_text not in system
@@ -394,6 +401,7 @@ def test_rejected_update_does_not_change_context_or_history_on_the_next_turn(ser
         "time_preference": None,
         "candidate_slots": [],
         "slots_checked_at": None,
+        "selected_slot": None,
     }
     assert ChatMessage("user", "Rejected message") not in fake_llm.calls[2][1]
 
@@ -417,4 +425,5 @@ def test_next_request_sees_state_reset_by_escalation(service, fake_llm):
         "time_preference": None,
         "candidate_slots": [],
         "slots_checked_at": None,
+        "selected_slot": None,
     }

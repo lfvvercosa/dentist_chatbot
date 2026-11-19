@@ -12,6 +12,7 @@ from app.schemas.appointment import (
     DatePreferenceUpdate,
     DentistPreferenceUpdate,
     ServicePreferenceUpdate,
+    SlotSelectionUpdate,
     TimePreferenceUpdate,
 )
 from app.services.availability import AvailabilityService
@@ -33,6 +34,7 @@ class FakeLLM(LLMClient):
         self.dentist_update: DentistPreferenceUpdate | None = None
         self.date_update: DatePreferenceUpdate | None = None
         self.time_update: TimePreferenceUpdate | None = None
+        self.slot_update: SlotSelectionUpdate | None = None
         self.booking_answer: str | None = None
 
     def generate(self, system: str, messages: Sequence[ChatMessage]) -> LLMResult:
@@ -51,6 +53,7 @@ class FakeLLM(LLMClient):
             dentist_update=self.dentist_update,
             date_update=self.date_update,
             time_update=self.time_update,
+            slot_update=self.slot_update,
             booking_answer=self.booking_answer,
         )
 

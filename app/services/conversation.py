@@ -82,6 +82,7 @@ def _apply_state(state: ConversationState, proposed: ConversationState) -> None:
     state.time_preference = proposed.time_preference
     state.candidate_slots = proposed.candidate_slots
     state.slots_checked_at = proposed.slots_checked_at
+    state.selected_slot = proposed.selected_slot
 
 
 def _log_success(

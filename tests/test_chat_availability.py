@@ -294,9 +294,7 @@ def test_expired_preferences_clear_old_offers_before_any_new_read(make_service, 
     assert state.stage == "collecting_preferences" and len(calendar.calls) == 1
 
 
-def test_numbered_choice_or_confirmation_only_refreshes_options_in_this_slice(
-    make_service, fake_llm
-):
+def test_booking_follow_up_without_a_selection_proposal_refreshes_options(make_service, fake_llm):
     service, calendar, _ = make_service()
     fill(fake_llm)
     first = service.handle_message("one", "Complete")
@@ -304,7 +302,8 @@ def test_numbered_choice_or_confirmation_only_refreshes_options_in_this_slice(
     assert service.handle_message("one", "Yes, book option 1") == first
     assert service._states["one"].stage == "offering_slots"
     assert len(calendar.calls) == 2
-    assert "A escolha de opções ainda não está disponível" in first
+    assert service._states["one"].selected_slot is None
+    assert "escolher uma opção pelo número" in first
 
 
 def test_other_conversation_does_not_inherit_offers(make_service, fake_llm):

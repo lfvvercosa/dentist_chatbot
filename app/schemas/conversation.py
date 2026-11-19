@@ -13,7 +13,7 @@ from app.schemas.appointment import (
     TimePreference,
 )
 
-ConversationStage = Literal["chatting", "collecting_preferences", "offering_slots"]
+ConversationStage = Literal["chatting", "collecting_preferences", "offering_slots", "slot_selected"]
 
 
 class ConversationState(BaseModel):
@@ -29,3 +29,4 @@ class ConversationState(BaseModel):
     time_preference: TimePreference | None = None
     candidate_slots: list[AppointmentSlot] = Field(default_factory=list)
     slots_checked_at: AwareDatetime | None = None
+    selected_slot: AppointmentSlot | None = None

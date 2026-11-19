@@ -14,6 +14,7 @@ from app.schemas.appointment import (
     DatePreferenceUpdate,
     DentistPreferenceUpdate,
     ServicePreferenceUpdate,
+    SlotSelectionUpdate,
     TimePreference,
     TimePreferenceUpdate,
 )
@@ -51,6 +52,7 @@ def make_response(
     date_update=None,
     time_update=None,
     booking_answer=None,
+    slot_update=None,
 ):
     body = json.dumps(
         {
@@ -75,6 +77,7 @@ def make_response(
                 time_update if time_update is not None else {"action": "keep", "preference": None}
             ),
             "booking_answer": booking_answer,
+            "slot_update": slot_update or {"action": "keep", "option_number": None},
         }
     )
     return SimpleNamespace(
@@ -137,6 +140,89 @@ def test_booking_answer_is_returned_from_the_validated_decision(answer):
     sdk = StubSDK(response=make_response(intent="booking", booking_answer=answer))
     result = make_client(sdk).generate(system="s", messages=[ChatMessage("user", "My request")])
     assert result.booking_answer == answer
+
+
+@pytest.mark.parametrize("action,number", [("keep", None), ("clear", None), ("set", 2)])
+def test_slot_proposal_is_returned_from_validated_decision(action, number):
+    sdk = StubSDK(response=make_response(slot_update={"action": action, "option_number": number}))
+    result = make_client(sdk).generate(system="s", messages=[ChatMessage("user", "My choice")])
+    assert result.slot_update == SlotSelectionUpdate(action=action, option_number=number)
+
+
+@pytest.mark.parametrize(
+    "update",
+    [
+        None,
+        {"action": "set", "option_number": None},
+        {"action": "set", "option_number": 0},
+        {"action": "set", "option_number": -1},
+        {"action": "set", "option_number": True},
+        {"action": "set", "option_number": 1.0},
+        {"action": "set", "option_number": "2"},
+        {"action": "keep", "option_number": 2},
+        {"action": "clear", "option_number": 2},
+        {"action": "confirm", "option_number": 2},
+        {"action": "set", "option_number": 2, "start": "2099-01-01"},
+    ],
+)
+def test_invalid_slot_proposal_is_rejected_without_exposing_content(update):
+    sdk = StubSDK(response=make_response(raw=json.dumps(_VALID_DECISION | {"slot_update": update})))
+    with pytest.raises(LLMError, match="invalid assistant decision") as error:
+        make_client(sdk).generate(system="s", messages=[ChatMessage("user", "patient secret")])
+    assert "patient secret" not in str(error.value)
+
+
+def test_real_adapter_selects_saved_option_rejects_malformed_choice_and_keeps_snapshot(
+    escalation_service, clinic_config, fixed_clock, availability_factory
+):
+    sdk = StubSDK(
+        response=make_response(
+            intent="booking",
+            language="en",
+            service_update={"action": "set", "service_id": "consultation"},
+            dentist_update={"action": "set", "dentist_id": "ana"},
+            date_update={
+                "action": "set",
+                "date_range": {"start_date": "2026-11-18", "end_date": "2026-11-18"},
+            },
+            time_update={
+                "action": "set",
+                "preference": {"kind": "morning", "start_time": None, "end_time": None},
+            },
+        )
+    )
+    service = ConversationService(
+        make_client(sdk),
+        "base",
+        escalation_service,
+        clinic_config,
+        clock=fixed_clock,
+        availability=availability_factory(clinic_config),
+    )
+    service.handle_message("one", "A consultation with Ana tomorrow morning")
+    expected = service._states["one"].candidate_slots[1]
+    sdk._response = make_response(
+        intent="booking",
+        language="en",
+        text="Booked at 2099-01-01",
+        slot_update={"action": "set", "option_number": 2},
+    )
+    summary = service.handle_message("one", "The second one")
+    assert summary.startswith("Selected demo option") and "2099" not in summary
+    assert service._states["one"].selected_slot == expected
+    before = service._states["one"].model_copy(deep=True)
+    sdk._response = make_response(
+        raw=json.dumps(_VALID_DECISION | {"slot_update": {"action": "set", "option_number": True}})
+    )
+    with pytest.raises(LLMError):
+        service.handle_message("one", "Malformed choice")
+    assert service._states["one"] == before
+    sdk._response = make_response(intent="other", text="The clinic opens at 08:00.")
+    service.handle_message("one", "Opening hours?")
+    context = json.loads(sdk.calls[-1]["system"].rsplit("\n", 1)[1])["current_workflow_state"]
+    assert context["selected_slot"] == expected.model_dump(mode="json")
+    assert sdk.calls[-1]["messages"][-2] == {"role": "assistant", "content": summary}
+    assert all(message["content"] != "Malformed choice" for message in sdk.calls[-1]["messages"])
 
 
 def test_real_adapter_and_service_preserve_mixed_answer_before_backend_question(
@@ -297,6 +383,7 @@ _VALID_DECISION = {
     "date_update": {"action": "keep", "date_range": None},
     "time_update": {"action": "keep", "preference": None},
     "booking_answer": None,
+    "slot_update": {"action": "keep", "option_number": None},
 }
 
 
@@ -423,6 +510,7 @@ def test_malformed_time_response_preserves_service_state_and_recovers_on_the_nex
         {k: v for k, v in _VALID_DECISION.items() if k != "booking_answer"},
         _VALID_DECISION | {"booking_answer": 123},
         {k: v for k, v in _VALID_DECISION.items() if k != "time_update"},
+        {k: v for k, v in _VALID_DECISION.items() if k != "slot_update"},
         _VALID_DECISION | {"escalation": "invalid"},
         _VALID_DECISION | {"language": "fr"},
         _VALID_DECISION | {"reply": "   "},

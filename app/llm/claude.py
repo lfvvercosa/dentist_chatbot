@@ -74,6 +74,7 @@ class ClaudeClient(LLMClient):
             dentist_update=decision.dentist_update,
             date_update=decision.date_update,
             time_update=decision.time_update,
+            slot_update=decision.slot_update,
             booking_answer=decision.booking_answer,
         )
 

@@ -7,6 +7,7 @@ from app.schemas.appointment import (
     DatePreferenceUpdate,
     DentistPreferenceUpdate,
     ServicePreferenceUpdate,
+    SlotSelectionUpdate,
     TimePreferenceUpdate,
 )
 
@@ -30,6 +31,9 @@ class AssistantDecision(BaseModel):
     )
     time_update: TimePreferenceUpdate = Field(
         description="Change to the time preference in the current patient message"
+    )
+    slot_update: SlotSelectionUpdate = Field(
+        description="Choice from saved candidate slots; keep or clarify with clear otherwise"
     )
     booking_answer: str | None = Field(
         description="Clinic answer alongside a booking follow-up; no questions; null otherwise"

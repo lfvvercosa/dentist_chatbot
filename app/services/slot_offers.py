@@ -35,12 +35,44 @@ def slot_offer_reply(
         )
     lines.append(
         "Essas opções podem mudar; nada foi reservado ou agendado. "
-        "Você pode alterar as preferências. A escolha de opções ainda não está disponível."
+        "Você pode escolher uma opção pelo número ou alterar as preferências."
         if language == "pt"
         else "These options can change; nothing has been reserved or booked. "
-        "You can change your preferences. Option selection is not available yet."
+        "You can choose an option by number or change your preferences."
     )
     return "\n\n".join([lines[0], "\n".join(lines[1:-1]), lines[-1]])
+
+
+def selected_slot_reply(
+    slot: AppointmentSlot, clinic: ClinicConfig, language: ResponseLanguage
+) -> str:
+    service = next(item for item in clinic.services if item.id == slot.service_id)
+    dentist = next(item for item in clinic.dentists if item.id == slot.dentist_id)
+    zone = ZoneInfo(clinic.timezone)
+    start = slot.interval.start.astimezone(zone).isoformat(sep=" ")
+    end = slot.interval.end.astimezone(zone).isoformat(sep=" ")
+    heading = "Opção de demonstração selecionada" if language == "pt" else "Selected demo option"
+    details = f"{service.name} — {dentist.name} — {start} → {end} ({clinic.timezone})"
+    footer = (
+        "A disponibilidade pode ter mudado; nada foi reservado ou agendado. "
+        "Você pode alterar a escolha ou as preferências. Confirmação e agendamento "
+        "ainda não estão disponíveis."
+        if language == "pt"
+        else "Availability may have changed; nothing has been reserved or booked. "
+        "You can change the selection or preferences. Confirmation and booking "
+        "are not available yet."
+    )
+    return f"{heading}:\n\n{details}\n\n{footer}"
+
+
+def invalid_slot_reply(count: int, language: ResponseLanguage) -> str:
+    return (
+        f"Essa opção não está na lista salva. Escolha um número de 1 a {count}. "
+        "Nada foi reservado ou agendado."
+        if language == "pt"
+        else f"That option is not in the saved list. Choose a number from 1 to {count}. "
+        "Nothing has been reserved or booked."
+    )
 
 
 def slot_search_error_reply(error: SlotSearchError, language: ResponseLanguage) -> str:
