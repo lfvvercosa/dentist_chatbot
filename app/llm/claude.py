@@ -32,7 +32,9 @@ class ClaudeClient(LLMClient):
                     "effort": self._effort,
                     "format": {
                         "type": "json_schema",
-                        "schema": AssistantDecision.model_json_schema(),
+                        # Claude accepts a subset of JSON Schema. Keep full constraints
+                        # in our Pydantic model and adapt only the outgoing API schema.
+                        "schema": anthropic.transform_schema(AssistantDecision),
                     },
                 },
                 betas=[_FALLBACK_BETA],

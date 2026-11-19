@@ -119,9 +119,22 @@ def test_sends_request_and_returns_text_and_usage():
     ]
     assert sent["output_config"] == {
         "effort": "low",
-        "format": {"type": "json_schema", "schema": AssistantDecision.model_json_schema()},
+        "format": {"type": "json_schema", "schema": anthropic.transform_schema(AssistantDecision)},
     }
     assert sent["fallbacks"] == "default"
+
+
+def test_outgoing_schema_omits_unsupported_minimum_and_preserves_python_constraint():
+    sdk = StubSDK(response=make_response())
+    make_client(sdk).generate(system="s", messages=[ChatMessage("user", "Hi")])
+    sent = sdk.calls[0]["output_config"]["format"]["schema"]
+    original = AssistantDecision.model_json_schema()
+    sent_option = sent["$defs"]["SlotSelectionUpdate"]["properties"]["option_number"]
+    original_option = original["$defs"]["SlotSelectionUpdate"]["properties"]["option_number"]
+    integer = next(item for item in sent_option["anyOf"] if item.get("type") == "integer")
+    assert "minimum" not in integer
+    assert "minimum" in integer["description"]
+    assert any(item.get("minimum") == 1 for item in original_option["anyOf"])
 
 
 def test_booking_intent_is_returned_from_the_validated_decision():
