@@ -26,8 +26,8 @@ deterministic preference completeness checks, and backend missing-detail questio
 Each Claude request includes saved preferences and the current time in the configured clinic
 timezone, alongside the separate message history.
 A booking turn collects missing preferences or moves to `offering_slots` after a successful
-search. FAQs preserve the pending draft/options, while escalation takes priority and clears
-saved preferences and options. Claude proposes keeping, setting, or clearing a
+search. FAQs preserve the pending draft/options/selection, while escalation takes priority and clears
+saved preferences, options, and selection. Claude proposes keeping, setting, or clearing a
 service or dentist, or explicitly accepting any eligible dentist. Python validates the IDs and
 checks the merged service/dentist pair against clinic configuration. An incompatible pair gets
 a clarification with eligible dentists; the requested choices remain until the patient changes
@@ -72,14 +72,31 @@ using clinic hours, service duration, preferences, and mock busy intervals. The 
 demos below exercise these services. Step 3.3 connects them to chat: API startup creates one
 shared mock calendar with an explicitly empty calendar for each configured dentist, then
 injects AvailabilityService into ConversationService. Complete non-escalating booking turns
-perform a fresh search and return checked, clearly labeled demonstration options.
+perform a fresh search and return checked, clearly labeled demonstration options, except when
+resolving or retaining a saved selection as described below.
 
 The server saves exact candidate slots and their request-clock timestamp as `candidate_slots`
-and `slots_checked_at`. Corrections replace or clear old offers; no matches, invalid search
+and `slots_checked_at`. Changed preferences replace or clear old offers; no matches, invalid search
 inputs, or calendar read errors clear offers and receive distinct backend replies. An out-of-range
 date request gets the actual allowed dates. FAQs retain the previous offer snapshot without
 rechecking it. A failed model call/decision preserves accepted state/history. Demo offers show
 full dates, times, UTC offsets, service/dentist names, and clinic timezone. Nothing is reserved.
+
+Step 4.1 adds selection and an exact summary. After offers, Claude proposes a `slot_update`:
+`set` with a one-based `option_number`, `keep`, or `clear` for an ambiguous/withdrawn selection.
+Python resolves the choice against the saved list without searching again or changing its order,
+saves the exact `selected_slot`, and enters `slot_selected`. The localized summary shows the
+stored service, dentist, start/end timestamps with UTC offsets, and clinic timezone. Selecting
+from an any-dentist list preserves that preference. A selection is neither confirmation nor
+a reservation; the summary states that availability may have changed and booking is unavailable.
+
+FAQs preserve a selection. Changed/cleared/expired preferences and escalation clear it. An
+ambiguous choice clears the selection and retains offers for clarification; an out-of-list
+number receives backend guidance. A missing offer list or elapsed chosen start causes collection
+or fresh offers without selecting from the replacement list. Bare consent never selects an
+option by default; a retained valid selection receives its summary again. Failed model calls or
+decisions preserve accepted state/history. Evaluation reports include the proposal and subsequent
+selected-slot snapshot. Offline tests use scripted decisions; live interpretation is not evaluated.
 
 The Python flow is split by responsibility:
 
@@ -87,13 +104,14 @@ The Python flow is split by responsibility:
 ConversationService   → call the model, run the workflow, save state/history, log metadata
   SchedulingWorkflow  → route escalation/FAQ/booking, ask questions, search availability
     PreferenceResolver → merge proposals into a separate draft and validate preferences
+    resolve_slot_selection → resolve or retain an exact saved choice and render its summary
     AvailabilityService → calculate slots through CalendarService
 ```
 
 The workflow returns a proposed state and reply. ConversationService applies them only after
 processing succeeds, so an invalid proposal cannot leave a partially changed booking draft.
 
-V2 will add option selection, confirmation, availability rechecking, verified booking, and
+V2 will add confirmation/refusal/abandonment handling, availability rechecking, verified booking, and
 duplicate protection, followed by Google test calendars.
 V3 will first migrate the working flow
 to LangGraph, then add PostgreSQL persistence, then multi-agent orchestration. WhatsApp and
@@ -168,7 +186,8 @@ out-of-horizon date ranges raise SlotSearchError without silent trimming; no mat
 returns [], while a failed required calendar read raises CalendarError without partial offers.
 Time calculations use UTC instants and the configured clinic timezone for local preferences.
 The returned AppointmentSlot values carry service ID, dentist ID, and an exact TimeInterval.
-Chat now uses the same calculator. Option selection, confirmation, and calendar writes remain later work.
+Chat uses the same calculator, then resolves selections from saved options. Confirmation and
+calendar writes remain later work.
 
 ## Setup
 
@@ -215,12 +234,14 @@ Open http://localhost:8501 and chat. Things to try:
 - "How much is a cleaning?" (no prices in the config: says it doesn't know)
 - "Quero marcar uma limpeza" (collects missing service/dentist/date/time preferences)
 - "Quero uma consulta amanhã de manhã com a Dra. Ana" (shows checked demo options)
+- "A segunda opção" (after offers: stores that exact choice and shows its summary)
 - "Meu dente dói e o rosto inchou" (directs to the emergency phone, no diagnosis)
 
 Restart the API to load the new startup wiring. Demo calendars start empty, so these results
 are fictional; the standalone demos use their own seeded busy intervals. You can correct
-preferences and get fresh offers. Option selection/confirmation and booking are not implemented;
-replying "book option 1" does not reserve or create anything.
+preferences and get fresh offers, or select a saved option. Confirmation and booking are not
+implemented; replying "book option 1" selects it and shows its summary without reserving or
+creating anything. A subsequent "yes" only repeats the selected summary in this slice.
 
 "New conversation" in the sidebar starts a fresh chat (a new `conversation_id`). The page only
 displays messages and calls `POST /chat`; the history lives on the server, in memory, so it is
@@ -328,8 +349,9 @@ context, English/Portuguese replies, and instructions attempting to suppress esc
 ## Known limitations
 
 - Chat reads an in-memory demonstration calendar only; no Google/real clinic calendar is
-  connected. There is no option selection, confirmation, actual booking, rescheduling, or
-  cancellation. Offers are snapshots and are never reserved; each booking turn searches again.
+  connected. Confirmation, actual booking, rescheduling, and cancellation are unavailable.
+  Offers and selected slots are unreserved snapshots. Selection retains the saved check time;
+  the calendar must be checked again before a future booking write. There is no offer-age TTL.
 - History belongs to one API process and disappears on restart. It has no length cap or
   expiration. "New conversation" changes the id; it does not delete the previous server history.
 - Escalation recognition depends on Claude and may be incorrect. The fixed templates are

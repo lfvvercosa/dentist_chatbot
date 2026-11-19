@@ -22,20 +22,21 @@ proposal recorded in `c2708cc`; that proposal did not add any application functi
   slot calculation through that interface with explicit demo settings and an offline demo.
   Step 3.3 connects mock availability to chat and stores/displays checked candidate options.
   A subsequent refactor separates conversation orchestration, scheduling decisions, and
-  preference resolution without changing behavior. The latest verification passed 429 offline
-  tests and Ruff checks, plus a 48-turn comparison against the pre-refactor implementation.
+  preference resolution without changing behavior. Step 4.1 adds selection against saved offers,
+  exact summaries, and slot_selected state without confirmation or writes. The latest verification
+  passed 472 offline tests and Ruff checks, plus an eight-turn scripted HTTP demonstration.
 - **Implemented preference collection:** service/dentist/date/time extraction, validation,
   completeness assessment, and backend missing-detail questions. Ambiguous clear proposals
   preserve model-generated clarifications; real-model interpretation accuracy remains unproven.
 - **Partial:** CalendarService has a read contract and working in-memory mock; AvailabilityService
   calculates exact slots using clinic rules/preferences and busy reads. Chat now shows/stores
-  checked mock options with distinct no-slot/search-error/read-error replies. Calendar
-  write/verification operations remain to be implemented.
-- **Not started:** slot selection, confirmation, booking,
+  checked mock options with distinct no-slot/search-error/read-error replies and can retain one
+  exact selected option. Calendar write/verification operations remain to be implemented.
+- **Not started:** confirmation/refusal/abandonment handling, booking,
   verification, duplicate protection, Google Calendar integration, and V2 release validation.
-- **Next small implementation step:** resolve a selected option against the saved candidate
-  list and present its exact summary, with no writes. Confirmation/refusal/abandonment handling
-  follows before guarded mock booking; the public API remains unchanged.
+- **Next small implementation step:** confirmation/refusal/abandonment handling bound to the
+  exact selected summary, with no writes. Guarded mock booking follows; the public API remains
+  unchanged. Selection alone or a bare affirmative cannot create an event in the current code.
 
 V1 remains the completed release tagged `v1.0` at `50cc705`, with package/API versions
 `1.0.0` and 64 release tests. Committing V2 work does not complete or release V2.
@@ -570,7 +571,7 @@ periods, exact off-grid times, no silent substitution, empty versus failed reads
 offers, altered configuration, immutable candidates, repeat reads without reservations, and
 DST gaps/repetitions/opening-boundary rejection. No live model/calendar calls were made.
 
-### Current implementation: step 3.3
+### Foundation: step 3.3
 
 API startup now loads SchedulingConfig, registers an explicitly empty mock calendar for every
 configured dentist, constructs AvailabilityService, and injects it into ConversationService.
@@ -648,6 +649,51 @@ state changes. A separate offline comparison against the saved pre-refactor impl
 matches 48 turns across Portuguese and English, including replies/errors, full state, prompt
 and message history, calendar reads, and normalized log metadata. Slot selection and an exact
 summary remain the next feature step.
+
+### Current implementation: step 4.1 — 2026-11-19
+
+Selection now resolves an interpreted choice against the exact saved offer list. The required
+AssistantDecision.slot_update uses SlotSelectionUpdate with keep/set/clear and option_number.
+Only set accepts a number: it must be a strict positive integer, uses one-based numbering,
+and cannot carry invented slot details. Claude uses saved order and context to map a number,
+ordinal, or unique time/dentist reference; ambiguous references use clear and a clarification.
+The real adapter validates and passes the proposal through LLMResult in the same model call.
+
+After preference validation, unchanged complete drafts can resolve/retain a selection through
+resolve_slot_selection in app/services/slot_selection.py. Python looks up the saved candidate,
+requires a start after the captured request time, saves it as selected_slot, and enters
+slot_selected. It preserves offer order and slots_checked_at without a new calendar read.
+Selecting a provider from any-dentist offers preserves that preference. Localized summaries
+come from the exact stored service/dentist/interval, show full dates and explicit UTC offsets
+and clinic timezone, and say that availability may have changed and nothing is reserved/booked.
+This slice neither asks for confirmation nor accepts authorization or writes to a calendar.
+
+FAQs preserve offers and selection. A valid retained selection repeats its summary on a
+booking follow-up, including bare consent. Ambiguous selection proposals clear selection,
+retain offers, and preserve the model's specific clarification. Positive out-of-list numbers
+clear selection and receive backend range guidance. Preference changes, clear proposals,
+expiry, incompatibility, handled search/read failures, and escalation invalidate selection;
+model/decision failures preserve all accepted state and history. A selection proposal alongside
+changed preferences cannot choose from the replacement list. Redundant same-value proposals
+do not count as preference changes. Missing offers or an elapsed chosen/retained start cause
+collection or fresh offers without selecting a replacement. There is no offer-age TTL; saved
+choices remain snapshots, with calendar rechecking required before a later booking write.
+
+Prompt snapshots add selected_slot. Offer replies now invite choosing an option by number.
+Actual summaries enter history and evaluation evidence; evaluation decisions include slot_update.
+The public HTTP contract and Streamlit frontend are unchanged. No new dependency, extra model
+call, Google adapter, confirmation state, or booking operation is introduced.
+
+Verification: 472 offline tests, Ruff lint/format checks, and whitespace checks pass. Tests cover
+strict proposal validation, PT/EN exact summaries, no selection-time calendar reads, stable
+numbering, re-selection, any-dentist choices, missing/ambiguous/out-of-list/elapsed choices,
+preference correction and expiry, FAQ/escalation priority, failed-turn preservation, read-error
+recovery, mixed clinic answers, real-adapter boundary validation, HTTP contract, and evaluation
+serialization/context. An eight-turn scripted SDK → real adapter → workflow → mock → /chat
+demonstration exercised offers, selection, FAQ, ambiguity, re-selection, correction, another
+choice, and escalation: eight stub SDK calls and two mock reads, with no network calls or writes.
+Real-model interpretation accuracy remains unmeasured. Confirmation/refusal/abandonment tied
+to the exact summary is the next implementation step, before guarded mock booking.
 
 ## Scheduling journey
 
@@ -777,7 +823,8 @@ step, explain its request/data flow, verify it, and stop for review.
    with clinic rules/preferences and explicit demo settings. Step 3.3 connects checked mock-backed
    offers and distinct search outcomes to chat, including stored candidates/check timestamps.
    Implementation of this read/offer milestone is complete; live-model evaluation remains pending.
-4. Add selection, exact summary, confirmation, refusal, and draft abandonment with no writes yet.
+4. **Step 4.1 implemented:** selection and exact summary, without writes. Next add confirmation,
+   refusal, and draft abandonment, still without writes.
 5. Add guarded mock booking, recheck, read-back verification, repeat protection, and unknown-result
    handling. Introduce these in separate reviewable slices before enabling Google writes.
 6. Add Google test-calendar authorization and read-only availability, then enable the same
@@ -940,3 +987,17 @@ application validation rules.
   replies, transitions, and existing availability behavior.
 - Verified 429 offline tests, Ruff lint/format, and a 48-turn before/after comparison.
 - Slot selection remains the next feature step; this change only reorganizes existing behavior.
+
+### Step 4.1 — 2026-11-19
+
+- Added typed keep/set/clear selection proposals and required structured output, with a strict
+  positive one-based option number. Resolve saved candidates into selected_slot/slot_selected
+  and backend PT/EN exact summaries without a fresh search or altered option numbering.
+- Preserved selection through FAQs and valid unchanged follow-ups; invalidated it on changed
+  or expired preferences, handled search failures, and escalation. Kept ambiguous, out-of-list,
+  missing, elapsed, and malformed model choices distinct, with no implicit replacement selection.
+- Updated prompt snapshots, offer guidance, actual history, and serialized evaluation evidence.
+- Verified 472 offline tests, Ruff lint/format, whitespace checks, and an eight-turn scripted
+  API/adapter/workflow/mock demonstration with two busy reads and no network calls or writes.
+- Next for review: confirmation/refusal/abandonment bound to the exact selected summary, with
+  no writes yet. Calendar writes, duplicate protection, and Google integration remain later work.
