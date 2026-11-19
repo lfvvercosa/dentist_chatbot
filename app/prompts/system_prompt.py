@@ -46,6 +46,10 @@ def build_turn_prompt(system_prompt: str, state: ConversationState, *, now: date
                 if state.time_preference is not None
                 else None
             ),
+            "candidate_slots": [slot.model_dump(mode="json") for slot in state.candidate_slots],
+            "slots_checked_at": (
+                state.slots_checked_at.isoformat() if state.slots_checked_at is not None else None
+            ),
         },
     }
     return f"{system_prompt}\n\n## Current backend workflow state\n{json.dumps(context)}"

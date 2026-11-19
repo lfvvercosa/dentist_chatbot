@@ -140,7 +140,7 @@ def test_booking_answer_is_returned_from_the_validated_decision(answer):
 
 
 def test_real_adapter_and_service_preserve_mixed_answer_before_backend_question(
-    escalation_service, clinic_config, fixed_clock
+    escalation_service, clinic_config, fixed_clock, availability_factory
 ):
     sdk = StubSDK(
         response=make_response(
@@ -151,12 +151,62 @@ def test_real_adapter_and_service_preserve_mixed_answer_before_backend_question(
         )
     )
     service = ConversationService(
-        make_client(sdk), "prompt", escalation_service, clinic_config, clock=fixed_clock
+        make_client(sdk),
+        "prompt",
+        escalation_service,
+        clinic_config,
+        clock=fixed_clock,
+        availability=availability_factory(clinic_config),
     )
     reply = service.handle_message("one", "Can I book? When do you open on Monday?")
     assert reply == "We open at 08:00 on Mondays.\n\nWhich service would you like to schedule?"
     assert len(sdk.calls) == 1
     assert service._states["one"].messages[-1] == ChatMessage("assistant", reply)
+
+
+def test_real_adapter_complete_decision_produces_backend_offers_and_saved_slot_context(
+    escalation_service, clinic_config, fixed_clock, availability_factory
+):
+    sdk = StubSDK(
+        response=make_response(
+            intent="booking",
+            language="en",
+            text="Fabricated confirmation at 2099-01-01",
+            service_update={"action": "set", "service_id": "consultation"},
+            dentist_update={"action": "set", "dentist_id": "ana"},
+            date_update={
+                "action": "set",
+                "date_range": {"start_date": "2026-11-18", "end_date": "2026-11-18"},
+            },
+            time_update={
+                "action": "set",
+                "preference": {"kind": "morning", "start_time": None, "end_time": None},
+            },
+        )
+    )
+    service = ConversationService(
+        make_client(sdk),
+        "base prompt",
+        escalation_service,
+        clinic_config,
+        availability=availability_factory(clinic_config),
+        clock=fixed_clock,
+    )
+    reply = service.handle_message("one", "A consultation with Ana tomorrow morning")
+    state = service._states["one"]
+    assert reply.startswith("Checked demo-calendar options")
+    assert "Fabricated confirmation" not in reply and "2099-01-01" not in reply
+    assert state.stage == "offering_slots" and len(state.candidate_slots) == 3
+    sdk._response = make_response(
+        intent="other", text="The clinic address is in the configuration."
+    )
+    service.handle_message("one", "What is your address?")
+    context = json.loads(sdk.calls[-1]["system"].rsplit("\n", 1)[1])["current_workflow_state"]
+    assert context["candidate_slots"] == [
+        slot.model_dump(mode="json") for slot in state.candidate_slots
+    ]
+    assert context["slots_checked_at"] == state.slots_checked_at.isoformat()
+    assert sdk.calls[-1]["messages"][-2] == {"role": "assistant", "content": reply}
 
 
 def test_service_update_is_returned_from_the_validated_decision():
@@ -322,7 +372,7 @@ def test_invalid_time_proposal_is_rejected_without_exposing_content(update):
 
 
 def test_malformed_time_response_preserves_service_state_and_recovers_on_the_next_turn(
-    escalation_service, clinic_config, fixed_clock
+    escalation_service, clinic_config, fixed_clock, availability_factory
 ):
     sdk = StubSDK(
         response=make_response(
@@ -334,7 +384,12 @@ def test_malformed_time_response_preserves_service_state_and_recovers_on_the_nex
         )
     )
     service = ConversationService(
-        make_client(sdk), "base", escalation_service, clinic_config, clock=fixed_clock
+        make_client(sdk),
+        "base",
+        escalation_service,
+        clinic_config,
+        clock=fixed_clock,
+        availability=availability_factory(clinic_config),
     )
     service.handle_message("one", "Entre 14 e 16")
     before = service._states["one"].model_copy(deep=True)

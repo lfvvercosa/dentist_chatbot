@@ -105,11 +105,16 @@ def test_compatibility_follows_configured_service_eligibility(preferences):
 
 
 @pytest.fixture
-def service(fake_llm, escalation_service, clinic_config, fixed_clock, caplog):
+def service(fake_llm, escalation_service, clinic_config, fixed_clock, caplog, availability_factory):
     caplog.set_level(logging.INFO, logger="app.services.conversation")
     fake_llm.intent = "booking"
     return ConversationService(
-        fake_llm, "base prompt", escalation_service, clinic_config, clock=fixed_clock
+        fake_llm,
+        "base prompt",
+        escalation_service,
+        clinic_config,
+        clock=fixed_clock,
+        availability=availability_factory(clinic_config),
     )
 
 
@@ -141,15 +146,16 @@ def test_service_assesses_merged_preferences_and_logs_only_field_codes(service, 
     assert "Private patient text" not in caplog.text
     fill_draft(fake_llm)
     fake_llm.service_update = ServicePreferenceUpdate(action="keep", service_id=None)
-    assert service.handle_message("one", "Any dentist tomorrow morning") == "reply 2"
+    reply = service.handle_message("one", "Any dentist tomorrow morning")
+    assert reply.startswith("Opções verificadas na agenda de demonstração")
     assert (
         "preferences_complete=True missing_preferences=none preference_conflicts=none"
         in caplog.text
     )
     state = service._states["one"]
-    assert state.stage == "collecting_preferences"
+    assert state.stage == "offering_slots"
     assert "preferences_complete" not in state.model_dump()
-    assert state.messages[-1] == ChatMessage("assistant", "reply 2")
+    assert state.messages[-1] == ChatMessage("assistant", reply)
 
 
 def test_corrections_recheck_compatibility_and_clear_reopens_collection(service, fake_llm, caplog):
@@ -229,7 +235,7 @@ def test_faq_and_escalation_skip_completeness_and_do_not_apply_proposals(
     state = service._states["one"]
     if route == "faq":
         assert state.time_preference == before.time_preference
-        assert state.stage == "collecting_preferences"
+        assert state.stage == "offering_slots"
     else:
         assert reply == escalation_service.reply(route, "pt")
         assert state.service_id is None and state.dentist_preference.kind == "unspecified"

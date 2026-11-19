@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 import pytest
 
 from app.core.clinic_config import load_clinic_config
+from app.core.scheduling_config import load_scheduling_config
 from app.llm.client import ChatMessage, LLMClient, LLMError, LLMResult
 from app.schemas.appointment import (
     DatePreferenceUpdate,
@@ -13,6 +14,8 @@ from app.schemas.appointment import (
     ServicePreferenceUpdate,
     TimePreferenceUpdate,
 )
+from app.services.availability import AvailabilityService
+from app.services.calendar import MockCalendarService
 from app.services.escalation import EscalationService
 
 
@@ -60,6 +63,18 @@ def fake_llm() -> FakeLLM:
 @pytest.fixture
 def fixed_clock():
     return lambda: datetime(2026, 11, 17, 12, tzinfo=UTC)
+
+
+@pytest.fixture
+def availability_factory():
+    def make(clinic):
+        return AvailabilityService(
+            clinic,
+            MockCalendarService({dentist.id: [] for dentist in clinic.dentists}),
+            load_scheduling_config(),
+        )
+
+    return make
 
 
 @pytest.fixture

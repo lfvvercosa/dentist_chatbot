@@ -54,10 +54,15 @@ def test_complete_and_conflicting_drafts_do_not_get_generic_questions(status):
 
 
 @pytest.fixture
-def service(fake_llm, escalation_service, clinic_config, fixed_clock):
+def service(fake_llm, escalation_service, clinic_config, fixed_clock, availability_factory):
     fake_llm.intent = "booking"
     return ConversationService(
-        fake_llm, "base prompt", escalation_service, clinic_config, clock=fixed_clock
+        fake_llm,
+        "base prompt",
+        escalation_service,
+        clinic_config,
+        clock=fixed_clock,
+        availability=availability_factory(clinic_config),
     )
 
 
@@ -93,16 +98,17 @@ def test_multi_turn_collection_asks_only_missing_details_and_saves_actual_replie
     fake_llm.time_update = TimePreferenceUpdate(
         action="set", preference=TimePreference(kind="any", start_time=None, end_time=None)
     )
-    assert service.handle_message("one", "Any time") == "reply 5"
+    fifth = service.handle_message("one", "Any time")
+    assert fifth.startswith("Opções verificadas" if language == "pt" else "Checked demo-calendar")
     assert len(fake_llm.calls) == 5
     state = service._states["one"]
-    assert state.stage == "collecting_preferences"
+    assert state.stage == "offering_slots"
     assert [m.content for m in state.messages if m.role == "assistant"] == [
         first,
         second,
         third,
         fourth,
-        "reply 5",
+        fifth,
     ]
     assert fake_llm.calls[1][1][1] == ChatMessage("assistant", first)
     assert fake_llm.calls[4][1][-2] == ChatMessage("assistant", fourth)
@@ -123,7 +129,7 @@ def test_later_fields_supplied_early_are_not_requested_again(service, fake_llm):
     )
     keep_preferences(fake_llm)
     fake_llm.dentist_update = DentistPreferenceUpdate(action="set", dentist_id="ana")
-    assert service.handle_message("one", "With Ana") == "reply 3"
+    assert service.handle_message("one", "With Ana").startswith("Opções verificadas")
 
 
 @pytest.mark.parametrize("field", ["service", "dentist", "date", "time"])
@@ -223,7 +229,7 @@ def test_other_conversations_start_with_their_own_missing_question(service, fake
 
 
 def test_dentist_question_uses_current_configured_names_and_eligibility(
-    fake_llm, escalation_service, clinic_config, fixed_clock
+    fake_llm, escalation_service, clinic_config, fixed_clock, availability_factory
 ):
     clinic = clinic_config.model_copy(
         update={
@@ -241,7 +247,14 @@ def test_dentist_question_uses_current_configured_names_and_eligibility(
             ],
         }
     )
-    service = ConversationService(fake_llm, "prompt", escalation_service, clinic, clock=fixed_clock)
+    service = ConversationService(
+        fake_llm,
+        "prompt",
+        escalation_service,
+        clinic,
+        clock=fixed_clock,
+        availability=availability_factory(clinic),
+    )
     fake_llm.intent = "booking"
     fake_llm.language = "en"
     fake_llm.service_update = ServicePreferenceUpdate(action="set", service_id="consultation")

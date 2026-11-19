@@ -10,10 +10,17 @@ from zoneinfo import ZoneInfo
 from app.core.clinic_config import ClinicConfig, Service
 from app.llm.client import ChatMessage, LLMClient, LLMError, ResponseLanguage
 from app.prompts.system_prompt import build_turn_prompt
-from app.schemas.appointment import TIME_PERIODS, DentistPreference, TimePreference
+from app.schemas.appointment import TIME_PERIODS, AppointmentSlot, DentistPreference, TimePreference
 from app.schemas.conversation import ConversationState
+from app.services.availability import AvailabilityService, SlotSearchError
+from app.services.calendar import CalendarError
 from app.services.escalation import EscalationService
 from app.services.preferences import assess_preferences, missing_preference_reply
+from app.services.slot_offers import (
+    calendar_read_error_reply,
+    slot_offer_reply,
+    slot_search_error_reply,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,11 +38,14 @@ class ConversationService:
         escalation: EscalationService,
         clinic: ClinicConfig,
         *,
+        availability: AvailabilityService,
         clock: Callable[[], datetime] | None = None,
     ):
         self._llm = llm
         self._system_prompt = system_prompt
         self._escalation = escalation
+        self._clinic = clinic
+        self._availability = availability
         self._services = {service.id: service for service in clinic.services}
         self._dentists = {dentist.id: dentist for dentist in clinic.dentists}
         self._timezone = ZoneInfo(clinic.timezone)
@@ -67,6 +77,8 @@ class ConversationService:
             time_reply = None
             collection_reply = None
             preference_status = None
+            candidate_slots: list[AppointmentSlot] = []
+            availability_outcome = "not_searched"
             if result.escalation == "none" and result.intent == "booking":
                 update = result.service_update
                 if update is not None and update.action == "set":
@@ -140,6 +152,26 @@ class ConversationService:
                             else []
                         ),
                     )
+                    if preference_status.is_complete:
+                        try:
+                            candidate_slots = self._availability.find_slots(
+                                service_id=service_id,
+                                dentist=dentist_preference,
+                                dates=date_preference,
+                                time_preference=time_preference,
+                                now=now,
+                            )
+                        except SlotSearchError as exc:
+                            availability_outcome = "invalid_search"
+                            collection_reply = slot_search_error_reply(exc, result.language)
+                        except CalendarError:
+                            availability_outcome = "read_error"
+                            collection_reply = calendar_read_error_reply(result.language)
+                        else:
+                            availability_outcome = "found" if candidate_slots else "none_found"
+                            collection_reply = slot_offer_reply(
+                                candidate_slots, self._clinic, result.language
+                            )
                     if collection_reply is not None and result.booking_answer:
                         collection_reply = f"{result.booking_answer}\n\n{collection_reply}"
             guidance = self._escalation.reply(result.escalation, result.language)
@@ -166,17 +198,22 @@ class ConversationService:
             state.dentist_preference = DentistPreference()
             state.date_preference = None
             state.time_preference = None
+            state.candidate_slots = []
+            state.slots_checked_at = None
         elif result.intent == "booking":
-            state.stage = "collecting_preferences"
+            state.stage = "offering_slots" if candidate_slots else "collecting_preferences"
             state.service_id = service_id
             state.dentist_preference = dentist_preference
             state.date_preference = date_preference
             state.time_preference = time_preference
+            state.candidate_slots = candidate_slots
+            state.slots_checked_at = now.astimezone(UTC) if candidate_slots else None
 
         logger.info(
             "chat request_id=%s conversation_id=%s outcome=ok latency_ms=%d model=%s "
             "input_tokens=%d output_tokens=%d escalation=%s intent=%s stage=%s "
-            "preferences_complete=%s missing_preferences=%s preference_conflicts=%s",
+            "preferences_complete=%s missing_preferences=%s preference_conflicts=%s "
+            "availability=%s offered_slots=%d",
             request_id,
             conversation_id,
             _elapsed_ms(start),
@@ -193,6 +230,8 @@ class ConversationService:
             ",".join(preference_status.conflicts) or "none"
             if preference_status is not None
             else None,
+            availability_outcome,
+            len(candidate_slots) if result.intent == "booking" else 0,
         )
 
         # Save the turn only after a successful reply: if the call fails, the history
@@ -210,13 +249,13 @@ class ConversationService:
                 f"{dentist.name} não oferece o serviço {service.name}. "
                 f"Para esse serviço, você pode escolher: {eligible}. "
                 "Você prefere mudar o profissional ou o serviço? "
-                "Ainda não posso consultar horários nem agendar."
+                "Ainda não posso agendar."
             )
         return (
             f"{dentist.name} does not provide {service.name}. "
             f"For this service, you can choose: {eligible}. "
             "Would you prefer to change the dentist or the service? "
-            "I cannot check availability or book appointments yet."
+            "I cannot book appointments yet."
         )
 
 
@@ -238,12 +277,12 @@ def _past_time_reply(language: ResponseLanguage) -> str:
         return (
             "O horário ou período escolhido já passou hoje. "
             "Você prefere um horário mais tarde ou outra data? "
-            "Ainda não posso consultar horários nem agendar."
+            "Ainda não posso agendar."
         )
     return (
         "The requested time or period has already passed today. "
         "Would you prefer a later time or another date? "
-        "I cannot check availability or book appointments yet."
+        "I cannot book appointments yet."
     )
 
 
@@ -252,12 +291,12 @@ def _past_date_reply(today: date, language: ResponseLanguage) -> str:
         return (
             "A data ou o início do intervalo informado já passou. "
             f"Pode informar uma data ou intervalo a partir de {today.isoformat()}? "
-            "Ainda não posso consultar horários nem agendar."
+            "Ainda não posso agendar."
         )
     return (
         "The date or the start of the requested range is in the past. "
         f"Could you choose a date or range starting on or after {today.isoformat()}? "
-        "I cannot check availability or book appointments yet."
+        "I cannot book appointments yet."
     )
 
 

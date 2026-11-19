@@ -2,13 +2,18 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 from app.core.clinic_config import Slug
 from app.llm.client import ChatMessage
-from app.schemas.appointment import DatePreference, DentistPreference, TimePreference
+from app.schemas.appointment import (
+    AppointmentSlot,
+    DatePreference,
+    DentistPreference,
+    TimePreference,
+)
 
-ConversationStage = Literal["chatting", "collecting_preferences"]
+ConversationStage = Literal["chatting", "collecting_preferences", "offering_slots"]
 
 
 class ConversationState(BaseModel):
@@ -22,3 +27,5 @@ class ConversationState(BaseModel):
     dentist_preference: DentistPreference = Field(default_factory=DentistPreference)
     date_preference: DatePreference | None = None
     time_preference: TimePreference | None = None
+    candidate_slots: list[AppointmentSlot] = Field(default_factory=list)
+    slots_checked_at: AwareDatetime | None = None

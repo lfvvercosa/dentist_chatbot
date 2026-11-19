@@ -16,10 +16,15 @@ from app.services.conversation import ConversationService
 
 
 @pytest.fixture
-def client(fake_llm, escalation_service, clinic_config, fixed_clock):
+def client(fake_llm, escalation_service, clinic_config, fixed_clock, availability_factory):
     # One service for the whole test, so history survives across requests.
     service = ConversationService(
-        fake_llm, "test system prompt", escalation_service, clinic_config, clock=fixed_clock
+        fake_llm,
+        "test system prompt",
+        escalation_service,
+        clinic_config,
+        clock=fixed_clock,
+        availability=availability_factory(clinic_config),
     )
     app.dependency_overrides[get_conversation_service] = lambda: service
     # Not used as `with TestClient(...)`, so the startup code (which builds the

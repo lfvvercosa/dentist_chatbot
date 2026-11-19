@@ -7,9 +7,12 @@ from fastapi import FastAPI
 
 from app.api.routes import router
 from app.core.clinic_config import load_clinic_config
+from app.core.scheduling_config import load_scheduling_config
 from app.core.settings import Settings
 from app.llm.claude import build_claude_client
 from app.prompts.system_prompt import build_system_prompt
+from app.services.availability import AvailabilityService
+from app.services.calendar import MockCalendarService
 from app.services.conversation import ConversationService
 from app.services.escalation import EscalationService
 
@@ -24,8 +27,18 @@ async def lifespan(app: FastAPI):
     settings = Settings()
     config = load_clinic_config()
     system_prompt = build_system_prompt(config)
+    app.state.calendar_service = MockCalendarService(
+        {dentist.id: [] for dentist in config.dentists}
+    )
+    app.state.availability_service = AvailabilityService(
+        config, app.state.calendar_service, load_scheduling_config()
+    )
     app.state.conversation_service = ConversationService(
-        build_claude_client(settings), system_prompt, EscalationService(config.emergency), config
+        build_claude_client(settings),
+        system_prompt,
+        EscalationService(config.emergency),
+        config,
+        availability=app.state.availability_service,
     )
     yield
 

@@ -19,10 +19,15 @@ from app.services.conversation import ConversationService
 
 
 @pytest.fixture
-def service(fake_llm, escalation_service, clinic_config, fixed_clock):
+def service(fake_llm, escalation_service, clinic_config, fixed_clock, availability_factory):
     fake_llm.intent = "booking"
     return ConversationService(
-        fake_llm, "base prompt", escalation_service, clinic_config, clock=fixed_clock
+        fake_llm,
+        "base prompt",
+        escalation_service,
+        clinic_config,
+        clock=fixed_clock,
+        availability=availability_factory(clinic_config),
     )
 
 
@@ -158,11 +163,16 @@ def test_time_is_kept_without_date_or_with_future_days(service, fake_llm, dates)
     ],
 )
 def test_named_period_boundaries_use_clinic_local_time(
-    fake_llm, escalation_service, clinic_config, kind, instant, expired
+    fake_llm, escalation_service, clinic_config, kind, instant, expired, availability_factory
 ):
     fake_llm.intent = "booking"
     service = ConversationService(
-        fake_llm, "base", escalation_service, clinic_config, clock=lambda: instant
+        fake_llm,
+        "base",
+        escalation_service,
+        clinic_config,
+        clock=lambda: instant,
+        availability=availability_factory(clinic_config),
     )
     choose_dates(fake_llm)
     preference = choose_time(fake_llm, kind)
@@ -189,11 +199,16 @@ def test_date_correction_rechecks_retained_time_without_replacing_other_preferen
 
 
 def test_retained_time_expires_on_booking_turn_after_clock_advances(
-    fake_llm, escalation_service, clinic_config
+    fake_llm, escalation_service, clinic_config, availability_factory
 ):
     instant = [datetime(2026, 11, 17, 12, tzinfo=UTC)]
     service = ConversationService(
-        fake_llm, "base", escalation_service, clinic_config, clock=lambda: instant[0]
+        fake_llm,
+        "base",
+        escalation_service,
+        clinic_config,
+        clock=lambda: instant[0],
+        availability=availability_factory(clinic_config),
     )
     fake_llm.intent = "booking"
     choose_dates(fake_llm)

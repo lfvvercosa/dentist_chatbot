@@ -19,13 +19,18 @@ from scripts.eval_v1 import EvalCase, EvalSuite, RecordingLLM, run_case
 
 
 def test_evaluation_records_backend_question_and_its_actual_history(
-    fake_llm, escalation_service, clinic_config, fixed_clock
+    fake_llm, escalation_service, clinic_config, fixed_clock, availability_factory
 ):
     fake_llm.intent = "booking"
     fake_llm.booking_answer = "We open at 08:00 on Mondays."
     llm = RecordingLLM(fake_llm)
     service = ConversationService(
-        llm, "prompt", escalation_service, clinic_config, clock=fixed_clock
+        llm,
+        "prompt",
+        escalation_service,
+        clinic_config,
+        clock=fixed_clock,
+        availability=availability_factory(clinic_config),
     )
     result = run_case(
         EvalCase(id="missing", messages=["Book", "Continue"], criteria=["Ask missing service"]),
@@ -39,11 +44,56 @@ def test_evaluation_records_backend_question_and_its_actual_history(
     assert fake_llm.calls[1][1][1] == ChatMessage("assistant", question)
 
 
+def test_evaluation_records_checked_offers_and_serializable_saved_slot_context(
+    fake_llm, escalation_service, clinic_config, fixed_clock, availability_factory
+):
+    fake_llm.intent = "booking"
+    fake_llm.service_update = ServicePreferenceUpdate(action="set", service_id="consultation")
+    fake_llm.dentist_update = DentistPreferenceUpdate(action="any", dentist_id=None)
+    fake_llm.date_update = DatePreferenceUpdate(
+        action="set", date_range=DatePreference(start_date="2026-11-18", end_date="2026-11-18")
+    )
+    fake_llm.time_update = TimePreferenceUpdate(
+        action="set", preference=TimePreference(kind="morning", start_time=None, end_time=None)
+    )
+    llm = RecordingLLM(fake_llm)
+    service = ConversationService(
+        llm,
+        "base prompt",
+        escalation_service,
+        clinic_config,
+        availability=availability_factory(clinic_config),
+        clock=fixed_clock,
+    )
+    result = run_case(
+        EvalCase(
+            id="mock-offers",
+            messages=["Complete", "Continue"],
+            criteria=["Offer checked demo slots"],
+        ),
+        service,
+        llm,
+    )
+    first, second = result["turns"]
+    assert first["reply"].startswith("Opções verificadas")
+    context = json.loads(second["system_prompt"].rsplit("\n", 1)[1])["current_workflow_state"]
+    assert context["stage"] == "offering_slots" and len(context["candidate_slots"]) == 3
+    assert context["slots_checked_at"] is not None
+    assert fake_llm.calls[1][1][1] == ChatMessage("assistant", first["reply"])
+    json.dumps(result)
+
+
 def test_eval_preserves_history_but_isolates_cases_and_leaves_grading_pending(
-    fake_llm, escalation_service, clinic_config
+    fake_llm, escalation_service, clinic_config, availability_factory
 ):
     llm = RecordingLLM(fake_llm)
-    service = ConversationService(llm, "real prompt placeholder", escalation_service, clinic_config)
+    service = ConversationService(
+        llm,
+        "real prompt placeholder",
+        escalation_service,
+        clinic_config,
+        availability=availability_factory(clinic_config),
+    )
     case = EvalCase(id="memory", messages=["I am Alex", "My name?"], criteria=["Recall Alex"])
 
     result = run_case(case, service, llm)
@@ -67,10 +117,16 @@ def test_eval_preserves_history_but_isolates_cases_and_leaves_grading_pending(
 
 
 def test_execution_error_skips_dependent_turns_without_becoming_behavior_failure(
-    fake_llm, escalation_service, clinic_config
+    fake_llm, escalation_service, clinic_config, availability_factory
 ):
     llm = RecordingLLM(fake_llm)
-    service = ConversationService(llm, "prompt", escalation_service, clinic_config)
+    service = ConversationService(
+        llm,
+        "prompt",
+        escalation_service,
+        clinic_config,
+        availability=availability_factory(clinic_config),
+    )
     case = EvalCase(id="booking", messages=["Book", "Confirm"], criteria=["Cannot book"])
     fake_llm.error = LLMError("API unavailable")
 
@@ -94,10 +150,16 @@ def test_duplicate_case_ids_are_rejected_before_a_run():
 
 
 def test_escalation_check_compares_the_model_decision_with_expected_level(
-    fake_llm, escalation_service, clinic_config
+    fake_llm, escalation_service, clinic_config, availability_factory
 ):
     llm = RecordingLLM(fake_llm)
-    service = ConversationService(llm, "prompt", escalation_service, clinic_config)
+    service = ConversationService(
+        llm,
+        "prompt",
+        escalation_service,
+        clinic_config,
+        availability=availability_factory(clinic_config),
+    )
     case = EvalCase(
         id="urgent", messages=["Help"], criteria=["Escalate"], expected_escalation=["urgent"]
     )
@@ -133,12 +195,18 @@ def test_expected_escalation_requires_one_level_per_turn():
 
 
 def test_service_update_is_saved_as_json_serializable_evaluation_evidence(
-    fake_llm, escalation_service, clinic_config
+    fake_llm, escalation_service, clinic_config, availability_factory
 ):
     fake_llm.intent = "booking"
     fake_llm.service_update = ServicePreferenceUpdate(action="set", service_id="cleaning")
     llm = RecordingLLM(fake_llm)
-    service = ConversationService(llm, "prompt", escalation_service, clinic_config)
+    service = ConversationService(
+        llm,
+        "prompt",
+        escalation_service,
+        clinic_config,
+        availability=availability_factory(clinic_config),
+    )
     case = EvalCase(id="service", messages=["A cleaning"], criteria=["Collect service"])
 
     result = run_case(case, service, llm)
@@ -152,13 +220,19 @@ def test_service_update_is_saved_as_json_serializable_evaluation_evidence(
 
 @pytest.mark.parametrize("action", ["set", "any"])
 def test_dentist_proposal_is_saved_as_json_serializable_evaluation_evidence(
-    fake_llm, escalation_service, clinic_config, action
+    fake_llm, escalation_service, clinic_config, action, availability_factory
 ):
     dentist_id = "ana" if action == "set" else None
     fake_llm.intent = "booking"
     fake_llm.dentist_update = DentistPreferenceUpdate(action=action, dentist_id=dentist_id)
     llm = RecordingLLM(fake_llm)
-    service = ConversationService(llm, "prompt", escalation_service, clinic_config)
+    service = ConversationService(
+        llm,
+        "prompt",
+        escalation_service,
+        clinic_config,
+        availability=availability_factory(clinic_config),
+    )
     case = EvalCase(id="dentist", messages=["My preference"], criteria=["Collect dentist"])
 
     result = run_case(case, service, llm)
@@ -171,12 +245,18 @@ def test_dentist_proposal_is_saved_as_json_serializable_evaluation_evidence(
 
 
 def test_evaluation_saves_the_exact_prompt_with_state_for_each_turn(
-    fake_llm, escalation_service, clinic_config
+    fake_llm, escalation_service, clinic_config, availability_factory
 ):
     fake_llm.intent = "booking"
     fake_llm.service_update = ServicePreferenceUpdate(action="set", service_id="cleaning")
     llm = RecordingLLM(fake_llm)
-    service = ConversationService(llm, "base prompt", escalation_service, clinic_config)
+    service = ConversationService(
+        llm,
+        "base prompt",
+        escalation_service,
+        clinic_config,
+        availability=availability_factory(clinic_config),
+    )
     case = EvalCase(id="context", messages=["A cleaning", "Tomorrow"], criteria=["Keep service"])
 
     result = run_case(case, service, llm)
@@ -192,6 +272,8 @@ def test_evaluation_saves_the_exact_prompt_with_state_for_each_turn(
             "dentist_preference": {"kind": "unspecified", "dentist_id": None},
             "date_preference": None,
             "time_preference": None,
+            "candidate_slots": [],
+            "slots_checked_at": None,
         },
         {
             "stage": "collecting_preferences",
@@ -199,12 +281,14 @@ def test_evaluation_saves_the_exact_prompt_with_state_for_each_turn(
             "dentist_preference": {"kind": "unspecified", "dentist_id": None},
             "date_preference": None,
             "time_preference": None,
+            "candidate_slots": [],
+            "slots_checked_at": None,
         },
     ]
 
 
 def test_evaluation_saves_json_dates_and_the_exact_clinic_clock_context(
-    fake_llm, escalation_service, clinic_config, fixed_clock
+    fake_llm, escalation_service, clinic_config, fixed_clock, availability_factory
 ):
     fake_llm.intent = "booking"
     fake_llm.date_update = DatePreferenceUpdate(
@@ -212,7 +296,12 @@ def test_evaluation_saves_json_dates_and_the_exact_clinic_clock_context(
     )
     llm = RecordingLLM(fake_llm)
     service = ConversationService(
-        llm, "prompt", escalation_service, clinic_config, clock=fixed_clock
+        llm,
+        "prompt",
+        escalation_service,
+        clinic_config,
+        clock=fixed_clock,
+        availability=availability_factory(clinic_config),
     )
     case = EvalCase(
         id="dates", messages=["Between tomorrow and Friday"], criteria=["Collect dates"]
@@ -232,7 +321,7 @@ def test_evaluation_saves_json_dates_and_the_exact_clinic_clock_context(
 
 
 def test_evaluation_serializes_time_proposals_and_saved_time_context(
-    fake_llm, escalation_service, clinic_config, fixed_clock
+    fake_llm, escalation_service, clinic_config, fixed_clock, availability_factory
 ):
     fake_llm.intent = "booking"
     fake_llm.time_update = TimePreferenceUpdate(
@@ -240,7 +329,12 @@ def test_evaluation_serializes_time_proposals_and_saved_time_context(
     )
     llm = RecordingLLM(fake_llm)
     service = ConversationService(
-        llm, "prompt", escalation_service, clinic_config, clock=fixed_clock
+        llm,
+        "prompt",
+        escalation_service,
+        clinic_config,
+        clock=fixed_clock,
+        availability=availability_factory(clinic_config),
     )
     result = run_case(
         EvalCase(id="times", messages=["Entre 14 e 16", "Continue"], criteria=["Keep time"]),

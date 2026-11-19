@@ -16,9 +16,15 @@ from app.services.conversation import ConversationService
 
 
 @pytest.fixture
-def service(fake_llm, escalation_service, clinic_config):
+def service(fake_llm, escalation_service, clinic_config, availability_factory):
     fake_llm.intent = "booking"
-    return ConversationService(fake_llm, "base prompt", escalation_service, clinic_config)
+    return ConversationService(
+        fake_llm,
+        "base prompt",
+        escalation_service,
+        clinic_config,
+        availability=availability_factory(clinic_config),
+    )
 
 
 def test_named_dentist_can_be_kept_corrected_cleared_or_replaced_with_any(service, fake_llm):
@@ -95,11 +101,7 @@ def test_incompatible_pair_returns_configured_names_and_preserves_requested_choi
         if language == "pt"
         else "change the dentist or the service"
     ) in reply
-    assert (
-        "não posso consultar horários nem agendar"
-        if language == "pt"
-        else "cannot check availability or book"
-    ) in reply
+    assert ("não posso agendar" if language == "pt" else "cannot book appointments yet") in reply
     assert state.messages[-1] == ChatMessage("assistant", reply)
 
 

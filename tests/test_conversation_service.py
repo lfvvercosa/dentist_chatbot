@@ -9,8 +9,16 @@ from app.services.conversation import ConversationService
 
 
 @pytest.fixture
-def service(fake_llm, escalation_service, clinic_config) -> ConversationService:
-    return ConversationService(fake_llm, "test system prompt", escalation_service, clinic_config)
+def service(
+    fake_llm, escalation_service, clinic_config, availability_factory
+) -> ConversationService:
+    return ConversationService(
+        fake_llm,
+        "test system prompt",
+        escalation_service,
+        clinic_config,
+        availability=availability_factory(clinic_config),
+    )
 
 
 def test_first_message_is_sent_with_the_system_prompt(service, fake_llm):
@@ -26,6 +34,8 @@ def test_first_message_is_sent_with_the_system_prompt(service, fake_llm):
         "dentist_preference": {"kind": "unspecified", "dentist_id": None},
         "date_preference": None,
         "time_preference": None,
+        "candidate_slots": [],
+        "slots_checked_at": None,
     }
     assert messages == [ChatMessage("user", "hello")]
 
@@ -299,6 +309,8 @@ def test_each_request_receives_saved_state_before_its_own_update(service, fake_l
             "dentist_preference": {"kind": "unspecified", "dentist_id": None},
             "date_preference": None,
             "time_preference": None,
+            "candidate_slots": [],
+            "slots_checked_at": None,
         },
         {
             "stage": "collecting_preferences",
@@ -306,6 +318,8 @@ def test_each_request_receives_saved_state_before_its_own_update(service, fake_l
             "dentist_preference": {"kind": "unspecified", "dentist_id": None},
             "date_preference": None,
             "time_preference": None,
+            "candidate_slots": [],
+            "slots_checked_at": None,
         },
         {
             "stage": "collecting_preferences",
@@ -313,6 +327,8 @@ def test_each_request_receives_saved_state_before_its_own_update(service, fake_l
             "dentist_preference": {"kind": "unspecified", "dentist_id": None},
             "date_preference": None,
             "time_preference": None,
+            "candidate_slots": [],
+            "slots_checked_at": None,
         },
         {
             "stage": "collecting_preferences",
@@ -320,6 +336,8 @@ def test_each_request_receives_saved_state_before_its_own_update(service, fake_l
             "dentist_preference": {"kind": "unspecified", "dentist_id": None},
             "date_preference": None,
             "time_preference": None,
+            "candidate_slots": [],
+            "slots_checked_at": None,
         },
     ]
 
@@ -340,6 +358,8 @@ def test_context_is_scoped_to_the_conversation_and_does_not_promote_patient_text
         "dentist_preference": {"kind": "unspecified", "dentist_id": None},
         "date_preference": None,
         "time_preference": None,
+        "candidate_slots": [],
+        "slots_checked_at": None,
     }
     assert _sent_state(fake_llm, 2) == {
         "stage": "chatting",
@@ -347,6 +367,8 @@ def test_context_is_scoped_to_the_conversation_and_does_not_promote_patient_text
         "dentist_preference": {"kind": "unspecified", "dentist_id": None},
         "date_preference": None,
         "time_preference": None,
+        "candidate_slots": [],
+        "slots_checked_at": None,
     }
     for system, _ in fake_llm.calls:
         assert patient_text not in system
@@ -370,6 +392,8 @@ def test_rejected_update_does_not_change_context_or_history_on_the_next_turn(ser
         "dentist_preference": {"kind": "unspecified", "dentist_id": None},
         "date_preference": None,
         "time_preference": None,
+        "candidate_slots": [],
+        "slots_checked_at": None,
     }
     assert ChatMessage("user", "Rejected message") not in fake_llm.calls[2][1]
 
@@ -391,4 +415,6 @@ def test_next_request_sees_state_reset_by_escalation(service, fake_llm):
         "dentist_preference": {"kind": "unspecified", "dentist_id": None},
         "date_preference": None,
         "time_preference": None,
+        "candidate_slots": [],
+        "slots_checked_at": None,
     }

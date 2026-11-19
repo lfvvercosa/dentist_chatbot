@@ -17,10 +17,15 @@ from app.services.conversation import ConversationService
 
 
 @pytest.fixture
-def service(fake_llm, escalation_service, clinic_config, fixed_clock):
+def service(fake_llm, escalation_service, clinic_config, fixed_clock, availability_factory):
     fake_llm.intent = "booking"
     return ConversationService(
-        fake_llm, "base prompt", escalation_service, clinic_config, clock=fixed_clock
+        fake_llm,
+        "base prompt",
+        escalation_service,
+        clinic_config,
+        clock=fixed_clock,
+        availability=availability_factory(clinic_config),
     )
 
 
@@ -94,7 +99,14 @@ def test_clear_and_ambiguous_correction_remove_old_date_from_the_next_snapshot(
     ],
 )
 def test_request_clock_uses_configured_clinic_timezone(
-    fake_llm, escalation_service, clinic_config, zone, instant, today, local_datetime
+    fake_llm,
+    escalation_service,
+    clinic_config,
+    zone,
+    instant,
+    today,
+    local_datetime,
+    availability_factory,
 ):
     calls = []
 
@@ -108,6 +120,7 @@ def test_request_clock_uses_configured_clinic_timezone(
         escalation_service,
         clinic_config.model_copy(update={"timezone": zone}),
         clock=clock,
+        availability=availability_factory(clinic_config.model_copy(update={"timezone": zone})),
     )
 
     service.handle_message("one", "What does tomorrow mean?")
@@ -151,11 +164,16 @@ def test_past_date_or_partially_past_range_clears_date_and_returns_clarification
 
 
 def test_keep_revalidates_a_saved_date_after_clinic_midnight(
-    fake_llm, escalation_service, clinic_config
+    fake_llm, escalation_service, clinic_config, availability_factory
 ):
     instant = [datetime(2026, 11, 17, 12, tzinfo=UTC)]
     service = ConversationService(
-        fake_llm, "base", escalation_service, clinic_config, clock=lambda: instant[0]
+        fake_llm,
+        "base",
+        escalation_service,
+        clinic_config,
+        clock=lambda: instant[0],
+        availability=availability_factory(clinic_config),
     )
     fake_llm.intent = "booking"
     choose_dates(fake_llm, "2026-11-17")
@@ -236,7 +254,7 @@ def test_past_date_clarification_takes_priority_while_dentist_conflict_remains(s
 
 
 def test_naive_injected_clock_is_rejected_before_the_llm_call(
-    fake_llm, escalation_service, clinic_config
+    fake_llm, escalation_service, clinic_config, availability_factory
 ):
     service = ConversationService(
         fake_llm,
@@ -244,6 +262,7 @@ def test_naive_injected_clock_is_rejected_before_the_llm_call(
         escalation_service,
         clinic_config,
         clock=lambda: datetime(2026, 11, 17),
+        availability=availability_factory(clinic_config),
     )
     with pytest.raises(ValueError, match="timezone-aware"):
         service.handle_message("one", "Hello")

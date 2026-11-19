@@ -18,12 +18,15 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.core.clinic_config import load_clinic_config
+from app.core.scheduling_config import load_scheduling_config
 from app.core.settings import Settings
 from app.llm.claude import build_claude_client
 from app.llm.client import ChatMessage, EscalationLevel, LLMClient, LLMError, LLMResult
 from app.prompts.system_prompt import build_system_prompt
 from app.schemas.assistant import AssistantDecision
 from app.schemas.chat import ConversationId, MessageText
+from app.services.availability import AvailabilityService
+from app.services.calendar import MockCalendarService
 from app.services.conversation import ConversationService
 from app.services.escalation import TEMPLATES_PATH, EscalationService
 
@@ -164,7 +167,15 @@ def main() -> int:
     config = load_clinic_config()
     system_prompt = build_system_prompt(config)
     llm = RecordingLLM(build_claude_client(settings))
-    service = ConversationService(llm, system_prompt, EscalationService(config.emergency), config)
+    scheduling = load_scheduling_config()
+    availability = AvailabilityService(
+        config,
+        MockCalendarService({dentist.id: [] for dentist in config.dentists}),
+        scheduling,
+    )
+    service = ConversationService(
+        llm, system_prompt, EscalationService(config.emergency), config, availability=availability
+    )
     report = {
         "started_at": started_at.isoformat(),
         "git_revision": git_output("rev-parse", "HEAD"),
@@ -177,6 +188,11 @@ def main() -> int:
             "max_retries": settings.llm_max_retries,
         },
         "system_prompt": system_prompt,
+        "calendar": {
+            "mode": "mock",
+            "initial_state": "empty_per_configured_dentist",
+            "scheduling_policy": scheduling.model_dump(),
+        },
         "output_schema": AssistantDecision.model_json_schema(),
         "escalation_templates": yaml.safe_load(TEMPLATES_PATH.read_text(encoding="utf-8")),
         "suite": suite.model_dump(),
