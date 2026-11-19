@@ -48,8 +48,8 @@ class SchedulingWorkflow:
 
     def process(self, state: ConversationState, result: LLMResult, now: datetime) -> TurnOutcome:
         """Return a proposed turn; now is the caller's captured clinic-local clock."""
-        guidance = self._escalation.reply(result.escalation, result.language)
-        if guidance is not None:
+        escalation_reply = self._escalation.reply(result.escalation, result.language)
+        if escalation_reply is not None:
             cleared = state.model_copy(
                 update={
                     "stage": "chatting",
@@ -62,7 +62,7 @@ class SchedulingWorkflow:
                     "selected_slot": None,
                 }
             )
-            return TurnOutcome(next_state=cleared, reply=guidance)
+            return TurnOutcome(next_state=cleared, reply=escalation_reply)
         if result.intent != "booking":
             return TurnOutcome(next_state=state, reply=result.text)
         return self._booking_turn(state, result, now)
