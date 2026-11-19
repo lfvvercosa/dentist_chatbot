@@ -16,10 +16,12 @@ class FakeBackend:
 
     def __init__(self):
         self.bodies: list[dict] = []
+        self.timeouts: list[float | None] = []
         self.status = 200
 
-    def post(self, url: str, json: dict, timeout: float) -> httpx2.Response:
+    def post(self, url: str, json: dict, timeout: float | None) -> httpx2.Response:
         self.bodies.append(json)
+        self.timeouts.append(timeout)
         request = httpx2.Request("POST", url)
         if self.status != 200:
             return httpx2.Response(self.status, request=request)
@@ -75,3 +77,24 @@ def test_failed_reply_shows_an_error_and_is_not_kept(backend):
 
     assert "HTTP 503" in at.error[0].value
     assert at.session_state.messages == []
+
+
+@pytest.mark.parametrize("setting,expected", [(None, 70), ("0", None), ("300", 300)])
+def test_configurable_request_timeout_keeps_successful_conversation(
+    backend, monkeypatch, setting, expected
+):
+    monkeypatch.delenv("CHAT_API_TIMEOUT_SECONDS", raising=False)
+    if setting is not None:
+        monkeypatch.setenv("CHAT_API_TIMEOUT_SECONDS", setting)
+    at = AppTest.from_file(APP_PATH).run()
+    send(at, "Hi")
+    send(at, "Continue")
+    assert backend.timeouts == [expected, expected]
+    assert backend.bodies[0]["conversation_id"] == backend.bodies[1]["conversation_id"]
+    assert [message["content"] for message in at.session_state.messages] == [
+        "Hi",
+        "reply 1",
+        "Continue",
+        "reply 2",
+    ]
+    assert not at.exception

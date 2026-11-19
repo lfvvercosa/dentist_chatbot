@@ -13,9 +13,12 @@ import httpx2
 import streamlit as st
 
 API_URL = os.environ.get("CHAT_API_URL", "http://localhost:8000")
-# Longer than the server's LLM timeout (60s), so the server gives up first and
-# answers with a clean 503 instead of this page cutting the request.
-TIMEOUT_SECONDS = 70
+# Default exceeds the server's 60s LLM timeout. Zero lets local debugger pauses
+# last indefinitely without this HTTP client abandoning the conversation turn.
+_configured_timeout = float(os.environ.get("CHAT_API_TIMEOUT_SECONDS", "70"))
+if _configured_timeout < 0:
+    raise ValueError("CHAT_API_TIMEOUT_SECONDS must be nonnegative; use 0 to disable")
+TIMEOUT_SECONDS = None if _configured_timeout == 0 else _configured_timeout
 MAX_MESSAGE_CHARS = 2000  # same limit as ChatRequest; avoids a confusing 422
 
 
