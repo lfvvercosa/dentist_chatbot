@@ -24,7 +24,7 @@ proposal recorded in `c2708cc`; that proposal did not add any application functi
   A subsequent refactor separates conversation orchestration, scheduling decisions, and
   preference resolution without changing behavior. Step 4.1 adds selection against saved offers,
   exact summaries, and slot_selected state without confirmation or writes. The latest verification
-  passed 472 offline tests and Ruff checks, plus an eight-turn scripted HTTP demonstration.
+  passed 476 offline tests and Ruff checks, plus an eight-turn scripted HTTP demonstration.
 - **Implemented preference collection:** service/dentist/date/time extraction, validation,
   completeness assessment, and backend missing-detail questions. Ambiguous clear proposals
   preserve model-generated clarifications; real-model interpretation accuracy remains unproven.
@@ -1001,3 +1001,26 @@ application validation rules.
   API/adapter/workflow/mock demonstration with two busy reads and no network calls or writes.
 - Next for review: confirmation/refusal/abandonment bound to the exact selected summary, with
   no writes yet. Calendar writes, duplicate protection, and Google integration remain later work.
+
+### Debugging support — 2026-11-19
+
+- Added configurable Streamlit request timeout: 70 seconds by default, zero disables it for
+  local breakpoint sessions. Verified default, disabled, and custom timeout modes retain
+  successful multi-turn display/history behavior. Latest offline suite: 475 tests.
+- Added docs/debugging.md with an API/Streamlit walkthrough, model-versus-final reply inspection,
+  state/history watches, and process-restart limits. Local ignored VS Code profiles start the
+  API without reload and the frontend with no HTTP timeout. Model network timeout remains
+  separate. No scheduling feature or booking stage was added.
+
+### Structured-output compatibility fix — 2026-11-19
+
+- A live debug request returned provider HTTP 400 because the raw Pydantic schema included
+  `minimum: 1` for the slot option integer, which Claude's structured outputs do not accept.
+  Existing SDK stubs did not enforce that provider restriction.
+- ClaudeClient now uses the installed SDK's transform_schema helper for outgoing schemas and
+  retains full AssistantDecision validation for returned output. Strict positive option-number
+  checks and keep/set/clear invariants remain enforced in Python. No new dependency was added.
+- Added a regression test inspecting the actual SDK request schema, alongside the existing
+  invalid-number response tests. Latest verification: 476 offline tests and Ruff checks.
+- Retry the live conversation after restarting the no-reload API. No live retry was made by
+  the coding agent; the corrected request's live result remains to be observed in the debugger.

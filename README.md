@@ -248,6 +248,14 @@ displays messages and calls `POST /chat`; the history lives on the server, in me
 lost when the API restarts (with `--reload`, on every saved `.py` file). If the API runs
 elsewhere, set `CHAT_API_URL` (default `http://localhost:8000`).
 
+To chat while stepping through the backend, follow [the debugger walkthrough](docs/debugging.md).
+Set `CHAT_API_TIMEOUT_SECONDS=0` for an unlimited frontend wait at breakpoints; the normal default
+is 70 seconds. Keep the API running without `--reload` so its in-memory conversation survives
+between turns. The local VS Code compound starts the debug API and Streamlit together.
+If a request fails, the API terminal contains the underlying error; Streamlit shows the public
+503 response. See the walkthrough's troubleshooting notes. Claude receives an SDK-transformed
+schema; returned decisions still undergo full Pydantic validation.
+
 ## Call the API directly
 
 With the API running, open http://localhost:8000/docs (Swagger), or:
