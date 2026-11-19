@@ -1,0 +1,8 @@
+# Demo search policy, separate from clinic facts and patient preferences.
+# The horizon includes today: 30 means today through today + 29 days.
+search_horizon_days: 30
+# Broad searches use an elapsed-time grid anchored at each day's clinic opening.
+# An exact requested time is checked as given, even when it is off this grid.
+slot_spacing_minutes: 15
+# Limit across all eligible dentists, ordered by start time and then dentist ID.
+max_results: 3

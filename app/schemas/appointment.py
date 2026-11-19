@@ -1,4 +1,4 @@
-"""Structured proposals for appointment preferences, separate from calendar actions."""
+"""Appointment preferences and candidate slots, separate from calendar write actions."""
 
 from datetime import date, time
 from typing import Literal
@@ -6,6 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.core.clinic_config import Slug
+from app.schemas.calendar import TimeInterval
 
 # Demo meanings for named preferences, independent of clinic opening hours.
 # Periods include their start and exclude their end; None means the end of the day.
@@ -151,3 +152,13 @@ class TimePreferenceUpdate(BaseModel):
         if (self.action == "set") != (self.preference is not None):
             raise ValueError("only set requires a time preference")
         return self
+
+
+class AppointmentSlot(BaseModel):
+    """One checked candidate with exact instants; it is neither reserved nor booked."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    service_id: Slug
+    dentist_id: Slug
+    interval: TimeInterval
