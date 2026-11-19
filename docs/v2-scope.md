@@ -17,16 +17,25 @@ proposal recorded in `c2708cc`; that proposal did not add any application functi
   past-date validation. Step 2.4 adds time periods, exact times, inclusive windows, explicit
   any time, corrections, and elapsed-time validation for today-only dates. Step 2.5 adds
   deterministic preference completeness and compatibility assessment. Step 2.6 adds localized
-  backend questions for the first missing detail. The latest code verification passed 306
-  offline tests and Ruff checks.
+  backend questions for the first missing detail. Step 3.1 adds a read-only CalendarService
+  and mock busy-interval reads with a standalone offline demonstration. Step 3.2 adds bounded
+  slot calculation through that interface with explicit demo settings and an offline demo.
+  Step 3.3 connects mock availability to chat and stores/displays checked candidate options.
+  A subsequent refactor separates conversation orchestration, scheduling decisions, and
+  preference resolution without changing behavior. The latest verification passed 429 offline
+  tests and Ruff checks, plus a 48-turn comparison against the pre-refactor implementation.
 - **Implemented preference collection:** service/dentist/date/time extraction, validation,
   completeness assessment, and backend missing-detail questions. Ambiguous clear proposals
   preserve model-generated clarifications; real-model interpretation accuracy remains unproven.
-- **Not started:** CalendarService, availability, slot selection, confirmation, booking,
+- **Partial:** CalendarService has a read contract and working in-memory mock; AvailabilityService
+  calculates exact slots using clinic rules/preferences and busy reads. Chat now shows/stores
+  checked mock options with distinct no-slot/search-error/read-error replies. Calendar
+  write/verification operations remain to be implemented.
+- **Not started:** slot selection, confirmation, booking,
   verification, duplicate protection, Google Calendar integration, and V2 release validation.
-- **Next small implementation step:** a mock CalendarService with read-only busy intervals,
-  followed by slot calculation. Selection, confirmation, and booking follow later; the existing
-  API and booking limitation remain.
+- **Next small implementation step:** resolve a selected option against the saved candidate
+  list and present its exact summary, with no writes. Confirmation/refusal/abandonment handling
+  follows before guarded mock booking; the public API remains unchanged.
 
 V1 remains the completed release tagged `v1.0` at `50cc705`, with package/API versions
 `1.0.0` and 64 release tests. Committing V2 work does not complete or release V2.
@@ -415,7 +424,7 @@ offline demonstration through the real Claude adapter/service with scripted SDK 
 missing dentist → complete with explicit any → service/dentist conflict → missing time after
 clearing, while the stage remained collecting_preferences. No live model/calendar calls were made.
 
-### Current implementation: step 2.6
+### Foundation: step 2.6
 
 `missing_preference_reply()` in `app/services/preferences.py` selects a Portuguese/English
 question from the first missing field in PreferenceStatus. Service/dentist/date/time order
@@ -459,6 +468,186 @@ turns. An eight-turn offline demonstration through the real Claude adapter/servi
 SDK responses exercised all four missing questions, a mixed price inquiry, complete-draft
 fallback, a standalone FAQ, ambiguous correction, and elapsed-time priority. No live model/calendar
 calls were made; interpretation and specific model clarifications remain model-dependent.
+
+### Foundation: step 3.1
+
+`CalendarService` in `app/services/calendar.py` introduces a provider-neutral read boundary,
+using the same abstract-base-class pattern as LLMClient. Its only current method is
+`get_busy_intervals(dentist_id, window)`. A future Google adapter will implement the same
+read contract; event creation and retrieval will be introduced with their workflow steps,
+without placeholder write methods in this slice.
+
+`TimeInterval` in `app/schemas/calendar.py` represents a concrete query window or busy period.
+It requires aware Python datetimes or aware ISO datetime strings, normalizes to UTC before
+comparing instants, and requires start < end. Naive values, date-only values, numeric timestamps,
+empty/reversed intervals, and extra fields are rejected. Values are immutable. Intervals use
+[start,end) semantics, with overlap excluding touching endpoints. This boundary convention
+matches Google's free/busy start/end semantics; clipping and sorting are our adapter contract.
+Patient DatePreference ranges and TimePreference bounds retain their existing inclusive
+preference meanings. Constructing concrete windows from those preferences comes later.
+
+`MockCalendarService` takes an explicit mapping of dentist IDs to sequences of validated
+TimeInterval objects. It copies the mapping/lists into a private snapshot. A registered empty
+sequence represents a known empty calendar; an unregistered dentist raises CalendarError.
+Reads filter overlap, clip results to the query, sort by start/end, and leave overlapping
+periods unmerged. Each read returns a fresh list. unavailable_dentists configures simulated
+read failures for registered IDs, including empty calendars; failure raises CalendarError
+and cannot become an empty result. Invalid failure configuration raises ValueError at setup.
+
+`uv run python -m scripts.try_mock_calendar` runs a credential-free, network-free demo using
+configured dentist IDs/names and the clinic timezone. For the first configured dentist it
+seeds fictional busy intervals on fixed 2026-11-19, prints 09:00–10:00 and 11:00–12:00 for an
+08:00–12:00 query, returns [] for 12:00–13:00, and demonstrates a simulated read failure.
+This is a working calendar-read slice outside the chat path. No runtime injection, prompt/API
+change, Google authorization, clinic-hour check, duration check, future-time filter, slot
+spacing/search defaults, or booking write is added. In particular, [] is not a slot offer.
+
+Verification: 344 offline tests, Ruff lint/format checks, whitespace checks, and the runnable
+mock demonstration passed. Coverage includes aware/naive inputs, UTC normalization across
+offsets and a repeated DST hour, positive duration, immutable values, half-open overlap,
+clipping/sorting, query-edge adjacency, overlapping seeds, dentist isolation, copied seeds and
+independent results, known-empty versus unknown versus failed reads, and the demo output.
+No live model or calendar calls were made. The existing chat/FAQ/preference/escalation tests
+still pass, and ConversationService continues to state that calendar access is unavailable.
+
+### Foundation: step 3.2
+
+`AvailabilityService` in `app/services/availability.py` receives clinic configuration, a
+CalendarService implementation, and validated SchedulingConfig. `find_slots()` takes a
+configured service ID, specific/explicit-any dentist preference, date range, time preference,
+and the caller's captured aware now. It returns immutable AppointmentSlot candidates carrying
+service/dentist IDs and exact UTC TimeInterval values. No conversation or calendar state is
+changed. The same calculator can use a future Google adapter through the read contract.
+
+`config/scheduling.yaml` makes the demo policy explicit: 30 clinic-local dates including today
+(today through today+29), a 15-minute grid anchored at each day's opening, and three results
+across all eligible dentists. SchedulingConfig validates strict integers, positive bounds,
+and technical caps (90 horizon days, 1440 spacing minutes, 20 results); unknown keys fail.
+These are demo search controls. Clinic hours, services/durations, provider eligibility, and
+timezone continue to come from clinic.yaml; named-period semantics remain TIME_PERIODS.
+
+Search inputs are checked before I/O: aware now, wholly today-or-later and wholly in-horizon
+dates, a configured service, and an answered compatible dentist preference. Past/partly past
+or partly out-of-horizon ranges raise SlotSearchError; they are not silently shortened.
+Any dentist searches only configured service-eligible IDs. Errors use fixed messages without
+echoing proposed IDs. Typed preference values supply shape/range validation.
+
+For each requested clinic-local date, closed days are skipped. Broad searches generate starts
+on the opening-anchored grid, then filter by time preference and start > now. Exact requested
+times bypass grid spacing and are checked unchanged, including seconds/off-grid starts.
+Windows include both start-time bounds, named periods keep their existing exclusive upper
+boundary, and any time applies no extra time filter. These preferences constrain appointment
+starts: an appointment starting before noon may end after noon, while its entire configured
+elapsed duration must always fit clinic hours. Busy intervals and appointments use [start,end),
+so touching busy boundaries are allowed.
+
+Calculations use UTC instants for duration/overlap and the configured timezone for wall times.
+Nonexistent local exact times yield no candidates; a repeated local time yields both distinct
+UTC possibilities. Opening boundaries that are nonexistent, repeated, or carry explicit time
+offsets raise SlotSearchError rather than choosing a boundary implicitly. Handling/formatting
+these distinct offset-bearing options for patients belongs in the later chat integration.
+
+The calculator reads busy intervals once for every eligible dentist over the candidate span
+before returning results. A required read failure propagates CalendarError and yields no
+partial list, even if another dentist was successfully read. No structural candidates (for
+example closed days or an elapsed today-only window) returns [] without unnecessary I/O.
+Successful reads with all candidates blocked also return []. Results are ordered by start
+instant then dentist ID and globally limited. Alternatives may overlap each other; choosing
+and booking one remains later workflow work, and no candidate is reserved.
+
+`uv run python -m scripts.try_availability` instantiates AvailabilityService with the mock,
+uses fixed fictional dates/clock and configured service/provider data, and demonstrates busy
+08:30–10:00 yielding consultation alternatives 08:00–08:30, 10:00–10:30, and 10:15–10:45.
+The API, prompts, ConversationService, and Streamlit still only collect preferences. Mock
+offers in chat, search-error/no-slot replies, selection, confirmation, writes, and Google
+integration remain later slices.
+
+Verification: 397 offline tests, Ruff lint/format checks, whitespace checks, and the runnable
+slot demo passed. New coverage checks configuration bounds, busy-edge adjacency, full duration,
+eligibility, global ordering/limit, unknown/unspecified/incompatible choices, date/horizon bounds,
+strictly future starts, timezone date rollover, closed days, inclusive ranges/windows, named
+periods, exact off-grid times, no silent substitution, empty versus failed reads, no partial
+offers, altered configuration, immutable candidates, repeat reads without reservations, and
+DST gaps/repetitions/opening-boundary rejection. No live model/calendar calls were made.
+
+### Current implementation: step 3.3
+
+API startup now loads SchedulingConfig, registers an explicitly empty mock calendar for every
+configured dentist, constructs AvailabilityService, and injects it into ConversationService.
+ConversationService requires this dependency; there is no silent preference-only fallback.
+The manual evaluation runner uses the same mock mode and declares it, the empty initial
+calendar state, and the scheduling policy in new reports. Standalone demos retain their own
+fictional seeded intervals. No Google credentials, real calendars, or write methods are added.
+
+After a non-escalating booking turn's proposals are validated/merged, complete preferences
+trigger find_slots with the captured request clock. Every such turn searches afresh. Backend
+PT/EN rendering in slot_offers.py supplies configured service/dentist names, full local start/end
+timestamps with explicit UTC offsets, clinic timezone, and a clear demo label. Repeated local
+times remain distinct by offset. Replies state that options may change and nothing is reserved
+or booked; option selection is not offered as implemented. Mixed clinic answers from the
+existing booking_answer field are preserved before the search outcome. Generated booking prose
+cannot replace a checked offer/search result. The structured LLM output schema is unchanged.
+
+ConversationState adds candidate_slots and slots_checked_at. Nonempty results set offering_slots
+and save the request clock in UTC. Empty results, corrected/cleared/incomplete/conflicting
+preferences, and handled search/read errors replace old offers with []/null and leave the stage
+at collecting_preferences. Valid preferences remain accepted even when search fails. FAQs keep
+the previous draft/options/check timestamp without a fresh read, with no promise that those
+options remain available. Escalation clears preferences/offers and returns configured guidance.
+Failed LLM calls or invalid decisions/IDs preserve all accepted state/history/offers.
+
+No matches, SlotSearchError, and CalendarError have distinct backend replies. Horizon errors
+now carry allowed_dates so Python can render the actual inclusive date limits; unsupported
+clinic boundaries get generic search guidance. These handled outcomes return HTTP 200 with
+the normal chat contract and save the actual reply. An unusable model result still returns 503
+without a successful turn. Logs add fixed availability outcome codes and a new-offer count,
+without names, timestamps, messages, or provider error details. Actual replies are used by
+history and evaluation evidence. Prompt snapshots include prior candidates/check time and
+instruct the model not to revive old options or treat them as reserved/current availability.
+
+Numbered choices or consent do not select or authorize a slot in this slice. If interpreted
+as a booking follow-up with unchanged preferences, they refresh the offer and retain
+offering_slots. Selection, an exact pending summary, confirmation, refusal/abandonment, and
+booking guards remain later work. The Streamlit frontend and public API need no new fields.
+
+Verification: 427 offline tests, Ruff lint/format checks, and whitespace checks passed.
+Coverage includes seeded mock offers, PT/EN rendering, stored candidates/check time and next
+prompt context, altered dates, stale-offer removal, FAQ preservation, expiry, escalation,
+model failure preservation, read-error recovery, horizon/generic errors, no matches, explicit
+offsets across a repeated hour, mixed clinic answers, isolation, unsupported selection, all
+HTTP outcomes, actual startup wiring without credentials, real-adapter scripted decisions,
+and evaluation serialization/history. An eight-turn scripted SDK → real Claude adapter →
+ConversationService → AvailabilityService → mock calendar → /chat demonstration exercised
+collection, offers, FAQ, correction, horizon rejection, read failure/recovery, and escalation.
+It made eight stub SDK calls and four mock reads, with zero network calls or calendar writes.
+No formal live-model interpretation evaluation was performed.
+
+### Refactor after step 3.3 — 2026-11-18
+
+ConversationService remains the public message entry point with the same constructor. Its
+handle_message method now captures the clock, calls the model, delegates to SchedulingWorkflow,
+applies the successful outcome, logs metadata, and saves the actual reply/history. The method
+shrinks from 186 to 25 lines; conversation.py shrinks from 304 to 119 lines.
+
+SchedulingWorkflow in app/services/scheduling.py routes escalation, FAQ, and booking turns;
+chooses clarification/missing-detail/search replies; and returns a TurnOutcome containing the
+proposed state and reply. PreferenceResolver in app/services/preference_updates.py merges and
+validates proposals on a detached booking draft. Pure localized conflict/expired-preference
+reply helpers move to preferences.py alongside the existing missing-detail renderer.
+AvailabilityService and CalendarService retain their responsibilities.
+
+Only ConversationService applies the proposed fields to accepted state and appends history,
+after workflow processing succeeds. The detached draft shares history without editing it and
+replaces candidate lists rather than mutating saved offers. FAQs preserve their existing state;
+invalid model proposals cannot commit an earlier valid update from the same turn. No new
+scheduling feature, API field, model call, dependency, or calendar write is introduced.
+
+Verification: all 429 offline tests and Ruff lint/format checks pass. Two new workflow tests
+cover detached successful proposals and rejection of a later invalid proposal without partial
+state changes. A separate offline comparison against the saved pre-refactor implementation
+matches 48 turns across Portuguese and English, including replies/errors, full state, prompt
+and message history, calendar reads, and normalized log metadata. Slot selection and an exact
+summary remain the next feature step.
 
 ## Scheduling journey
 
@@ -583,7 +772,11 @@ step, explain its request/data flow, verify it, and stop for review.
    including the difference between an unspecified dentist and an explicit "any dentist."
    **Step 2.6 complete:** localized backend first-missing-field questions, configured eligible
    dentist names, and preserved specific clear clarifications. Live-model accuracy remains unproven.
-3. Add mock CalendarService reads and slot calculation; demonstrate real mock-backed offers.
+3. **Implemented:** step 3.1 adds the CalendarService read contract, concrete UTC intervals,
+   working mock reads/failures, and an offline demonstration. Step 3.2 adds bounded slot calculation
+   with clinic rules/preferences and explicit demo settings. Step 3.3 connects checked mock-backed
+   offers and distinct search outcomes to chat, including stored candidates/check timestamps.
+   Implementation of this read/offer milestone is complete; live-model evaluation remains pending.
 4. Add selection, exact summary, confirmation, refusal, and draft abandonment with no writes yet.
 5. Add guarded mock booking, recheck, read-back verification, repeat protection, and unknown-result
    handling. Introduce these in separate reviewable slices before enabling Google writes.
@@ -701,3 +894,49 @@ application validation rules.
   snapshot independently passed its offline suite and Ruff checks before committing.
 - Next for review: mock CalendarService reads, then slot calculation. Selection, confirmation,
   and booking remain later. V2 remains in progress.
+
+### Step 3.1 — 2026-11-18
+
+- Added TimeInterval, CalendarService/CalendarError, and MockCalendarService with explicit
+  dentist registration, UTC-normalized half-open ranges, clipped/sorted busy reads, empty/read
+  failure distinction, and copied seed/results behavior. No calendar write methods were added.
+- Added a standalone offline demonstration using clinic configuration and fictional seeded
+  busy periods. ConversationService, prompts, the public API, and Streamlit are unchanged.
+- Verified 344 offline tests, Ruff lint/format, whitespace checks, and the mock demo. No live
+  model/calendar calls, commits, or pushes were made for this step.
+- Next for review: deterministic slot calculation using clinic hours/duration, date/time
+  preferences, and mock busy intervals, followed by chat offers. V2 remains in progress.
+
+### Step 3.2 — 2026-11-18
+
+- Added strict demo SchedulingConfig/YAML, immutable AppointmentSlot candidates, and
+  AvailabilityService.find_slots over an injected CalendarService and captured aware clock.
+- Applied eligibility, bounded dates, clinic hours/duration, future starts, grid/exact-time
+  rules, local preferences, UTC overlap, stable global ordering, and result limits. Kept
+  invalid inputs, empty results, and calendar read failures distinct, without reservations.
+- Added a standalone offline slot demo. Verified 397 offline tests, Ruff lint/format,
+  whitespace checks, and the demo. No live model/calendar calls, commits, or pushes for this step.
+- Next for review: mock availability offers in chat, including stored candidates and distinct
+  search-error/no-slots/read-error replies. Selection, confirmation, and booking remain later.
+
+### Step 3.3 — 2026-11-18
+
+- Wired empty per-configured-dentist mock calendars and AvailabilityService into API startup
+  and the evaluation runner. Required explicit availability injection in ConversationService.
+- Added offering_slots, exact saved candidates/check timestamps, backend localized demo offers,
+  distinct no-slot/search-error/read-error replies, horizon limits, and safe outcome/count logs.
+- Preserved FAQ snapshots, escalation priority, actual reply history, mixed clinic answers,
+  and failed-model atomicity; invalidated old offers on corrections or handled search failures.
+- Verified 427 offline tests, Ruff lint/format, whitespace checks, and an eight-turn scripted
+  API/adapter/service/mock demonstration. No live model/calendar calls, writes, commits, or pushes.
+- Next for review: slot selection and an exact summary, without writes. Confirmation/refusal/
+  abandonment and guarded booking follow in later slices. V2 remains in progress.
+
+### Refactor after step 3.3 — 2026-11-18
+
+- Split the large conversation module into ConversationService for the message lifecycle,
+  SchedulingWorkflow for turn decisions, and PreferenceResolver for draft updates/validation.
+- Preserve accepted state/history until processing succeeds; retain the public constructor,
+  replies, transitions, and existing availability behavior.
+- Verified 429 offline tests, Ruff lint/format, and a 48-turn before/after comparison.
+- Slot selection remains the next feature step; this change only reorganizes existing behavior.

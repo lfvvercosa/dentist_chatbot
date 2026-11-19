@@ -25,9 +25,9 @@ in-memory conversation state, booking intent, service/dentist/date/time preferen
 deterministic preference completeness checks, and backend missing-detail questions.
 Each Claude request includes saved preferences and the current time in the configured clinic
 timezone, alongside the separate message history.
-A validated intent moves the workflow from
-`chatting` to `collecting_preferences`; FAQs preserve a pending booking stage, while escalation
-takes priority and clears saved preferences. Claude proposes keeping, setting, or clearing a
+A booking turn collects missing preferences or moves to `offering_slots` after a successful
+search. FAQs preserve the pending draft/options, while escalation takes priority and clears
+saved preferences and options. Claude proposes keeping, setting, or clearing a
 service or dentist, or explicitly accepting any eligible dentist. Python validates the IDs and
 checks the merged service/dentist pair against clinic configuration. An incompatible pair gets
 a clarification with eligible dentists; the requested choices remain until the patient changes
@@ -60,24 +60,50 @@ same order, in Portuguese or English. The dentist question lists configured elig
 and offers the explicit any choice; it never automatically selects the only eligible dentist.
 The actual question is saved in history and evaluation reports. Escalation, past-date/time,
 and dentist-conflict guidance take priority. A clear proposal preserves Claude's specific
-ambiguity/withdrawal clarification; a complete draft keeps its usual generated summary and
-clinic phone. Standalone FAQs keep their normal generated answers. For mixed clinic-question/
+ambiguity/withdrawal clarification; complete valid drafts now trigger backend availability
+searches. Standalone FAQs keep their normal generated answers. For mixed clinic-question/
 booking messages, Claude's internal `booking_answer` carries the clinic answer without a
-follow-up question; Python preserves it before adding the missing-detail question. The same
+follow-up question; Python preserves it before adding a missing-detail question or search outcome. The same
 Claude call supplies both, and the public API still returns just conversation_id and reply.
 
-Calendar access and booking are not implemented yet. Date/time validation and completeness do
-not check opening hours, appointment duration, or calendar availability.
+Step 3.1 adds a read-only CalendarService contract and an in-memory mock with fictional busy
+intervals. Step 3.2 adds AvailabilityService, which calculates exact candidate appointments
+using clinic hours, service duration, preferences, and mock busy intervals. The standalone
+demos below exercise these services. Step 3.3 connects them to chat: API startup creates one
+shared mock calendar with an explicitly empty calendar for each configured dentist, then
+injects AvailabilityService into ConversationService. Complete non-escalating booking turns
+perform a fresh search and return checked, clearly labeled demonstration options.
 
-V2 will add the remaining preference extraction and scheduling workflow, followed by
-CalendarService (mock first, then Google test calendars), including confirmation, availability
-rechecking, verified booking, and duplicate protection. V3 will first migrate the working flow
+The server saves exact candidate slots and their request-clock timestamp as `candidate_slots`
+and `slots_checked_at`. Corrections replace or clear old offers; no matches, invalid search
+inputs, or calendar read errors clear offers and receive distinct backend replies. An out-of-range
+date request gets the actual allowed dates. FAQs retain the previous offer snapshot without
+rechecking it. A failed model call/decision preserves accepted state/history. Demo offers show
+full dates, times, UTC offsets, service/dentist names, and clinic timezone. Nothing is reserved.
+
+The Python flow is split by responsibility:
+
+```text
+ConversationService   → call the model, run the workflow, save state/history, log metadata
+  SchedulingWorkflow  → route escalation/FAQ/booking, ask questions, search availability
+    PreferenceResolver → merge proposals into a separate draft and validate preferences
+    AvailabilityService → calculate slots through CalendarService
+```
+
+The workflow returns a proposed state and reply. ConversationService applies them only after
+processing succeeds, so an invalid proposal cannot leave a partially changed booking draft.
+
+V2 will add option selection, confirmation, availability rechecking, verified booking, and
+duplicate protection, followed by Google test calendars.
+V3 will first migrate the working flow
 to LangGraph, then add PostgreSQL persistence, then multi-agent orchestration. WhatsApp and
 deployment infrastructure remain V4 work.
 
 When testing a booking request, the backend log now includes
 `intent=booking stage=collecting_preferences`. This records the workflow stage, not a confirmed
-appointment. Normal logs do not include patient messages. Intent interpretation still depends
+appointment. A successful offer uses `stage=offering_slots` with `availability=found` and the
+new-offer count. Other search outcomes are `none_found`, `invalid_search`, and `read_error`;
+unsearched turns log `not_searched`. Normal logs do not include patient messages. Intent interpretation still depends
 on Claude; offline tests verify transitions with fakes rather than real model judgments.
 
 Development continues in this codebase on `main`. To run the fixed V1 snapshot in a repository
@@ -88,6 +114,61 @@ git switch --detach v1.0
 ```
 
 Return to ongoing development with `git switch main`.
+
+## Offline mock calendar demo
+
+```bash
+uv run python -m scripts.try_mock_calendar
+```
+
+This requires no API key, server, or network. It registers a mock calendar for each configured
+dentist and seeds the first dentist with fictional busy intervals on the fixed demo date
+2026-11-19. It prints occupied periods 09:00–10:00 and 11:00–12:00 in the configured clinic
+timezone, an empty result for 12:00–13:00, and a simulated read failure.
+
+`CalendarService.get_busy_intervals(dentist_id, window)` returns sorted busy intervals clipped
+to a concrete TimeInterval. Intervals require aware timestamps, normalize to UTC, and include
+their start while excluding their end. A busy interval ending at 10:00 does not overlap one
+starting at 10:00. Returned intervals may overlap each other; they are not merged. Each known
+empty mock calendar is explicitly registered with an empty list; an unmapped dentist or failed
+read raises CalendarError instead of returning an empty result.
+
+The mock copies its seed data and performs no writes. An empty result establishes only that
+the mock has no busy intervals in that query window; clinic hours, service duration, future
+times, and slot spacing are applied by the slot calculator described below. Chat,
+Google integration, confirmation, and booking are not exercised by this demo.
+
+## Offline slot calculation demo
+
+```bash
+uv run python -m scripts.try_availability
+```
+
+This also requires no credentials, server, or network. It uses the first configured service
+and its first eligible dentist, a fixed clock/date, and a fictional busy period 08:30–10:00.
+With the current clinic configuration, it prints these 30-minute consultation alternatives:
+
+```text
+2026-11-19 08:00-08:30
+2026-11-19 10:00-10:30
+2026-11-19 10:15-10:45
+```
+
+The explicit demo policy in [config/scheduling.yaml](config/scheduling.yaml) searches the next
+30 clinic-local dates including today, uses a 15-minute grid anchored at each day's opening,
+and returns at most three options across all eligible dentists. Options are sorted by start
+instant and then dentist ID. Alternative options may overlap each other; none is reserved.
+An exact requested start is checked as given, including an off-grid time. A broad time window
+filters grid starts without rounding or changing the patient's bounds. Named periods and time
+bounds constrain appointment starts; the full configured service duration must fit clinic hours.
+
+Only strictly future starts without busy overlap are returned. Closed days are skipped.
+An explicit any dentist searches only providers configured for that service. Past or partly
+out-of-horizon date ranges raise SlotSearchError without silent trimming; no matching slots
+returns [], while a failed required calendar read raises CalendarError without partial offers.
+Time calculations use UTC instants and the configured clinic timezone for local preferences.
+The returned AppointmentSlot values carry service ID, dentist ID, and an exact TimeInterval.
+Chat now uses the same calculator. Option selection, confirmation, and calendar writes remain later work.
 
 ## Setup
 
@@ -132,8 +213,14 @@ Open http://localhost:8501 and chat. Things to try:
 
 - "Vocês abrem no sábado?" (answered from the config)
 - "How much is a cleaning?" (no prices in the config: says it doesn't know)
-- "Quero marcar uma limpeza" (collects service, date and time; says to call the clinic)
+- "Quero marcar uma limpeza" (collects missing service/dentist/date/time preferences)
+- "Quero uma consulta amanhã de manhã com a Dra. Ana" (shows checked demo options)
 - "Meu dente dói e o rosto inchou" (directs to the emergency phone, no diagnosis)
+
+Restart the API to load the new startup wiring. Demo calendars start empty, so these results
+are fictional; the standalone demos use their own seeded busy intervals. You can correct
+preferences and get fresh offers. Option selection/confirmation and booking are not implemented;
+replying "book option 1" does not reserve or create anything.
 
 "New conversation" in the sidebar starts a fresh chat (a new `conversation_id`). The page only
 displays messages and calls `POST /chat`; the history lives on the server, in memory, so it is
@@ -153,6 +240,9 @@ The client sends only the conversation id and the new message. Reusing the same 
 the conversation. Responses: `200` with the reply, `422` for an invalid body (e.g. a blank
 message), `503` if Claude is unavailable or returns an unusable decision. `GET /health`
 reports that the local API is running; it does not check Claude availability.
+Handled search validation, no-slot, and mock-calendar read failures return `200` with an honest
+chat reply, preserve the accepted preferences, and clear old offers. They remain distinct from
+an unusable model decision, which returns `503` without changing accepted state/history.
 
 ## Development
 
@@ -187,6 +277,9 @@ Each run writes a new JSON report under `evals/results/`, including the fictiona
 replies, criteria, rendered system prompt, model settings, returned models, tokens, and latency.
 Use `--output path/to/new-report.json` to choose a path; existing reports are never overwritten.
 Completed cases are saved as the run progresses.
+Runs on the current development code use the mock-backed V2 chat flow. New reports declare
+mock mode, initially empty per-dentist calendars, and the demo scheduling policy; historical
+reports remain unchanged. Use the v1.0 checkout described above to reproduce released V1 behavior.
 
 **A completed API call is not a passing evaluation.** Read every conversation against both
 the shared criteria and the case-specific criteria. Record pass/fail with a reason in a
@@ -205,7 +298,8 @@ Each message makes one Claude call returning `escalation` (`none`, `urgent`, or 
 `language` (`pt` or `en`), and a normal `reply`. Pydantic validates this internal response.
 The public `/chat` contract is still just `conversation_id` and the final reply.
 
-For `none`, the patient sees the generated reply. For `urgent` or `emergency`, the backend
+For `none`, the patient sees a generated answer or a backend preference/availability reply.
+For `urgent` or `emergency`, the backend
 uses [config/escalation.yaml](config/escalation.yaml), with emergency contacts from
 `clinic.yaml`. This guidance is also the reply saved in conversation history. It tells the
 patient where to seek help; nobody is automatically called or notified.
@@ -233,8 +327,9 @@ context, English/Portuguese replies, and instructions attempting to suppress esc
 
 ## Known limitations
 
-- No calendar access or actual booking, rescheduling, or cancellation. The assistant gathers
-  preferences and directs the patient to call.
+- Chat reads an in-memory demonstration calendar only; no Google/real clinic calendar is
+  connected. There is no option selection, confirmation, actual booking, rescheduling, or
+  cancellation. Offers are snapshots and are never reserved; each booking turn searches again.
 - History belongs to one API process and disappears on restart. It has no length cap or
   expiration. "New conversation" changes the id; it does not delete the previous server history.
 - Escalation recognition depends on Claude and may be incorrect. The fixed templates are
