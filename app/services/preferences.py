@@ -2,9 +2,10 @@
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import date
 from typing import Literal
 
-from app.core.clinic_config import Service
+from app.core.clinic_config import Dentist, Service
 from app.llm.client import ResponseLanguage
 from app.schemas.appointment import DatePreference, DentistPreference, TimePreference
 
@@ -88,3 +89,50 @@ def missing_preference_reply(
         return None
     template = _MISSING_QUESTIONS[language][status.missing[0]]
     return template.format(dentists=", ".join(eligible_dentists))
+
+
+def dentist_conflict_reply(
+    service: Service, dentist: Dentist, eligible_names: Sequence[str], language: ResponseLanguage
+) -> str:
+    eligible = ", ".join(eligible_names)
+    if language == "pt":
+        return (
+            f"{dentist.name} não oferece o serviço {service.name}. "
+            f"Para esse serviço, você pode escolher: {eligible}. "
+            "Você prefere mudar o profissional ou o serviço? "
+            "Ainda não posso agendar."
+        )
+    return (
+        f"{dentist.name} does not provide {service.name}. "
+        f"For this service, you can choose: {eligible}. "
+        "Would you prefer to change the dentist or the service? "
+        "I cannot book appointments yet."
+    )
+
+
+def past_time_reply(language: ResponseLanguage) -> str:
+    if language == "pt":
+        return (
+            "O horário ou período escolhido já passou hoje. "
+            "Você prefere um horário mais tarde ou outra data? "
+            "Ainda não posso agendar."
+        )
+    return (
+        "The requested time or period has already passed today. "
+        "Would you prefer a later time or another date? "
+        "I cannot book appointments yet."
+    )
+
+
+def past_date_reply(today: date, language: ResponseLanguage) -> str:
+    if language == "pt":
+        return (
+            "A data ou o início do intervalo informado já passou. "
+            f"Pode informar uma data ou intervalo a partir de {today.isoformat()}? "
+            "Ainda não posso agendar."
+        )
+    return (
+        "The date or the start of the requested range is in the past. "
+        f"Could you choose a date or range starting on or after {today.isoformat()}? "
+        "I cannot book appointments yet."
+    )
