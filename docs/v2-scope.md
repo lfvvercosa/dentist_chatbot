@@ -22,9 +22,11 @@ proposal recorded in `c2708cc`; that proposal did not add any application functi
   slot calculation through that interface with explicit demo settings and an offline demo.
   Step 3.3 connects mock availability to chat and stores/displays checked candidate options.
   A subsequent refactor separates conversation orchestration, scheduling decisions, and
-  preference resolution without changing behavior. Step 4.1 adds selection against saved offers,
-  exact summaries, and slot_selected state without confirmation or writes. The latest verification
-  passed 476 offline tests and Ruff checks, plus an eight-turn scripted HTTP demonstration.
+  preference resolution without changing behavior. Step 4.1 adds selection against saved offers
+  and exact summaries. Step 4.2 binds confirmation to an immutable summary revision, handles
+  refusal/abandonment, and introduces awaiting_confirmation/ready_to_book without writes.
+  The latest verification passed 531 offline tests and Ruff checks, plus an eleven-turn
+  scripted HTTP demonstration.
 - **Implemented preference collection:** service/dentist/date/time extraction, validation,
   completeness assessment, and backend missing-detail questions. Ambiguous clear proposals
   preserve model-generated clarifications; real-model interpretation accuracy remains unproven.
@@ -32,11 +34,12 @@ proposal recorded in `c2708cc`; that proposal did not add any application functi
   calculates exact slots using clinic rules/preferences and busy reads. Chat now shows/stores
   checked mock options with distinct no-slot/search-error/read-error replies and can retain one
   exact selected option. Calendar write/verification operations remain to be implemented.
-- **Not started:** confirmation/refusal/abandonment handling, booking,
+- **Not started:** calendar booking writes,
   verification, duplicate protection, Google Calendar integration, and V2 release validation.
-- **Next small implementation step:** confirmation/refusal/abandonment handling bound to the
-  exact selected summary, with no writes. Guarded mock booking follows; the public API remains
-  unchanged. Selection alone or a bare affirmative cannot create an event in the current code.
+- **Next small implementation step:** mock create/read-back operations with a stable operation
+  reference, then guarded chat booking with recheck, verification, retry/duplicate protection,
+  and uncertain-result handling in separate slices. The public API remains unchanged. Current
+  approval records intent only; no calendar write path exists.
 
 V1 remains the completed release tagged `v1.0` at `50cc705`, with package/API versions
 `1.0.0` and 64 release tests. Committing V2 work does not complete or release V2.
@@ -650,7 +653,7 @@ matches 48 turns across Portuguese and English, including replies/errors, full s
 and message history, calendar reads, and normalized log metadata. Slot selection and an exact
 summary remain the next feature step.
 
-### Current implementation: step 4.1 — 2026-11-19
+### Foundation: step 4.1 — 2026-11-19
 
 Selection now resolves an interpreted choice against the exact saved offer list. The required
 AssistantDecision.slot_update uses SlotSelectionUpdate with keep/set/clear and option_number.
@@ -694,6 +697,58 @@ demonstration exercised offers, selection, FAQ, ambiguity, re-selection, correct
 choice, and escalation: eight stub SDK calls and two mock reads, with no network calls or writes.
 Real-model interpretation accuracy remains unmeasured. Confirmation/refusal/abandonment tied
 to the exact summary is the next implementation step, before guarded mock booking.
+
+### Current implementation: step 4.2 — 2026-11-19
+
+Selected summaries now ask for explicit approval and enter awaiting_confirmation, replacing the
+slot_selected stage. ConversationState adds booking_proposal: an immutable BookingProposal
+with a server-generated UUID proposal_id and exact AppointmentSlot. The proposal is created
+when the successful backend summary is returned and stays fixed through FAQs and unchanged
+follow-ups. A new selection, including re-selection of the same option, produces a new ID.
+The model receives the ID and exact snapshot; patient-facing replies do not expose the ID.
+
+The required structured confirmation_update uses ConfirmationUpdate: keep/confirm/decline/abandon.
+Confirm and decline require a UUID reference; keep and abandon require null. The same Claude
+call interprets the patient response, and the existing adapter validates the full model after
+sending the SDK-transformed API schema. Prompts distinguish clinic questions from workflow
+consent and keep booking_answer null for requests that do not actually ask clinic facts.
+
+Python records approval only against the accepted pre-turn proposal in awaiting_confirmation,
+with complete unchanged preferences, the same future selected slot still in the saved offers,
+the matching proposal ID, no selection correction, and no escalation. Matching approval enters
+ready_to_book and retains the exact proposal. A repeated matching confirmation is idempotent.
+Neither the state nor the reply claims that a calendar event exists. Approval responses are
+backend-rendered from the saved slot and explicitly say nothing is reserved/booked and calendar
+creation is not available yet. No new calendar reads occur during selection or confirmation.
+
+Selection and consent in one message only generate a new summary/question. Ambiguous answers
+repeat the pending question without approval. Changed/cleared/expired preferences or changed
+selections invalidate the proposal and require another summary/approval; "yes, but at three"
+cannot approve an older time. Stale/cross-conversation references do not approve or discard
+the current proposal. The workflow keeps the current pending or already-approved status and
+explains the mismatched reference. FAQs cannot authorize booking and preserve pending/approved
+state. Model/decision failures preserve the exact accepted proposal/history; escalation clears it.
+
+A matching refusal without competing corrections discards the draft, even after expiry.
+An explicit abandonment discards any new-booking draft, including an approved one, and may
+arrive with other intent. Both clear preferences, offers, selection, proposal, and stage while
+retaining successful history. A negative answer with another time/option is a correction,
+requiring a new summary. Whole-draft withdrawal never cancels an existing calendar event.
+Escalation takes priority over all controls.
+
+The public API and frontend remain unchanged. No write methods, booking operation reference,
+calendar event, per-conversation lock, or dentist booking guard is added. This slice exercises
+sequential turns; guarded booking and its concurrency/recovery rules remain the next milestone.
+
+Verification: 531 offline tests, Ruff lint/format, and whitespace checks pass. Coverage includes
+typed control validation, UUID binding, exact PT/EN responses, fresh revisions, one-turn consent
+rejection, consent without selection, stale/cross-conversation IDs, changed pending and approved
+preferences, expiry, refusal/abandonment, ambiguous answers, repeated approval, FAQ/escalation
+priority, provider/validation failure preservation, HTTP contract, and evaluation serialization.
+An eleven-turn scripted SDK → real adapter → workflow → mock → /chat demonstration exercised
+offer, selection-plus-consent, FAQ, approval/repetition, correction, re-selection, stale consent,
+refusal, another request, and abandonment: eleven stub SDK calls, three mock reads, no network
+calls or calendar writes. Live confirmation interpretation remains unmeasured.
 
 ## Scheduling journey
 
@@ -823,8 +878,8 @@ step, explain its request/data flow, verify it, and stop for review.
    with clinic rules/preferences and explicit demo settings. Step 3.3 connects checked mock-backed
    offers and distinct search outcomes to chat, including stored candidates/check timestamps.
    Implementation of this read/offer milestone is complete; live-model evaluation remains pending.
-4. **Step 4.1 implemented:** selection and exact summary, without writes. Next add confirmation,
-   refusal, and draft abandonment, still without writes.
+4. **Steps 4.1–4.2 implemented:** selection, exact summary, bound confirmation, refusal, and draft
+   abandonment, without writes. ready_to_book records approval only; it is not a booking result.
 5. Add guarded mock booking, recheck, read-back verification, repeat protection, and unknown-result
    handling. Introduce these in separate reviewable slices before enabling Google writes.
 6. Add Google test-calendar authorization and read-only availability, then enable the same
@@ -1024,3 +1079,21 @@ application validation rules.
   invalid-number response tests. Latest verification: 476 offline tests and Ruff checks.
 - Retry the live conversation after restarting the no-reload API. No live retry was made by
   the coding agent; the corrected request's live result remains to be observed in the debugger.
+
+### Step 4.2 — 2026-11-19
+
+- Added frozen BookingProposal revisions with server-generated UUIDs, required typed
+  confirmation updates, awaiting_confirmation, and ready_to_book. Bound approval/refusal to
+  the exact saved pre-turn summary and retained unchanged future slot, without calendar writes.
+- New selections require fresh summary IDs and another confirmation turn. Corrections revoke
+  pending/approved proposals; stale references cannot approve or discard a newer summary.
+  FAQs preserve proposals, failures preserve accepted state/history, and escalation clears them.
+- Matching refusal and explicit whole-draft abandonment clear scheduling fields while preserving
+  history. A negative response with another time/option follows the correction path instead.
+- Added backend PT/EN questions, approval and withdrawal responses, prompt snapshots, UUID
+  validation, and evaluation evidence. Tightened booking_answer instructions for workflow actions.
+- Verified 531 offline tests, Ruff lint/format, whitespace checks, and an eleven-turn scripted
+  API/adapter/workflow/mock demonstration with three busy reads and no network calls or writes.
+- Next for review: mock creation/read-back operations with stable references, then guarded
+  recheck/create/verification and retry/unknown-result handling in separate slices. Sequential
+  confirmation alone does not complete V2 or enable Google access or booking writes.

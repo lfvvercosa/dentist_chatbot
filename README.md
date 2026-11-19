@@ -82,21 +82,34 @@ date request gets the actual allowed dates. FAQs retain the previous offer snaps
 rechecking it. A failed model call/decision preserves accepted state/history. Demo offers show
 full dates, times, UTC offsets, service/dentist names, and clinic timezone. Nothing is reserved.
 
-Step 4.1 adds selection and an exact summary. After offers, Claude proposes a `slot_update`:
+Steps 4.1–4.2 add selection, exact summaries, and bound confirmation. After offers, Claude proposes a `slot_update`:
 `set` with a one-based `option_number`, `keep`, or `clear` for an ambiguous/withdrawn selection.
 Python resolves the choice against the saved list without searching again or changing its order,
-saves the exact `selected_slot`, and enters `slot_selected`. The localized summary shows the
+saves the exact `selected_slot` and a frozen `booking_proposal`, and enters `awaiting_confirmation`.
+The proposal contains a server-generated UUID identifying this exact summary revision. The localized summary shows the
 stored service, dentist, start/end timestamps with UTC offsets, and clinic timezone. Selecting
 from an any-dentist list preserves that preference. A selection is neither confirmation nor
-a reservation; the summary states that availability may have changed and booking is unavailable.
+a reservation. Python asks whether to approve these exact details and states that no calendar
+event has been created. The previous `slot_selected` stage is replaced by `awaiting_confirmation`.
 
 FAQs preserve a selection. Changed/cleared/expired preferences and escalation clear it. An
 ambiguous choice clears the selection and retains offers for clarification; an out-of-list
 number receives backend guidance. A missing offer list or elapsed chosen start causes collection
 or fresh offers without selecting from the replacement list. Bare consent never selects an
-option by default; a retained valid selection receives its summary again. Failed model calls or
-decisions preserve accepted state/history. Evaluation reports include the proposal and subsequent
-selected-slot snapshot. Offline tests use scripted decisions; live interpretation is not evaluated.
+option by default. With a saved summary, Claude interprets the answer as `confirmation_update`:
+`keep`, `confirm`, `decline`, or `abandon`. Confirm/decline must carry the exact saved proposal ID;
+keep/abandon use null. Matching approval of an unchanged future slot moves to `ready_to_book`.
+Repeated approval retains the same proposal and response. A new selection, including the same
+option selected again, creates a fresh ID and requires another confirmation turn. Selection
+plus consent in one message only produces the confirmation question.
+
+"Yes, but another time" changes preferences and cannot approve the old summary. A refusal of
+the matching summary or explicit whole-draft abandonment clears the booking fields and retains
+history. Abandonment works at any draft stage; it never cancels an existing event. FAQs preserve
+pending/approved state, while escalation clears it. Stale or cross-conversation proposal IDs
+cannot approve or discard the current summary. Failed model calls/decisions preserve accepted
+state/history. Evaluation reports include interpreted confirmation and the proposal snapshots.
+Offline tests use scripted decisions; live confirmation interpretation is not evaluated.
 
 The Python flow is split by responsibility:
 
@@ -105,13 +118,14 @@ ConversationService   → call the model, run the workflow, save state/history, 
   SchedulingWorkflow  → route escalation/FAQ/booking, ask questions, search availability
     PreferenceResolver → merge proposals into a separate draft and validate preferences
     resolve_slot_selection → resolve or retain an exact saved choice and render its summary
+    resolve_confirmation / withdraw_booking → bind approval or discard a draft
     AvailabilityService → calculate slots through CalendarService
 ```
 
 The workflow returns a proposed state and reply. ConversationService applies them only after
 processing succeeds, so an invalid proposal cannot leave a partially changed booking draft.
 
-V2 will add confirmation/refusal/abandonment handling, availability rechecking, verified booking, and
+V2 will add guarded mock writes, availability rechecking, verified booking, and
 duplicate protection, followed by Google test calendars.
 V3 will first migrate the working flow
 to LangGraph, then add PostgreSQL persistence, then multi-agent orchestration. WhatsApp and
@@ -186,8 +200,8 @@ out-of-horizon date ranges raise SlotSearchError without silent trimming; no mat
 returns [], while a failed required calendar read raises CalendarError without partial offers.
 Time calculations use UTC instants and the configured clinic timezone for local preferences.
 The returned AppointmentSlot values carry service ID, dentist ID, and an exact TimeInterval.
-Chat uses the same calculator, then resolves selections from saved options. Confirmation and
-calendar writes remain later work.
+Chat uses the same calculator, then resolves selections and records approval of exact saved
+summaries. Calendar writes remain later work.
 
 ## Setup
 
@@ -235,13 +249,16 @@ Open http://localhost:8501 and chat. Things to try:
 - "Quero marcar uma limpeza" (collects missing service/dentist/date/time preferences)
 - "Quero uma consulta amanhã de manhã com a Dra. Ana" (shows checked demo options)
 - "A segunda opção" (after offers: stores that exact choice and shows its summary)
+- "Sim, confirmo esses dados" (after the summary: records approval without creating an event)
+- "Não quero esse agendamento" (declines the pending summary or abandons the new-booking draft)
 - "Meu dente dói e o rosto inchou" (directs to the emergency phone, no diagnosis)
 
 Restart the API to load the new startup wiring. Demo calendars start empty, so these results
 are fictional; the standalone demos use their own seeded busy intervals. You can correct
-preferences and get fresh offers, or select a saved option. Confirmation and booking are not
-implemented; replying "book option 1" selects it and shows its summary without reserving or
-creating anything. A subsequent "yes" only repeats the selected summary in this slice.
+preferences and get fresh offers, or select a saved option. Replying "book option 1" selects it
+and asks for confirmation without reserving or creating anything. A subsequent clear "yes"
+can record approval of that exact summary. The response explicitly states that actual calendar
+booking is not available yet. Restart the no-reload debug API to load the new structured schema.
 
 "New conversation" in the sidebar starts a fresh chat (a new `conversation_id`). The page only
 displays messages and calls `POST /chat`; the history lives on the server, in memory, so it is
@@ -357,8 +374,8 @@ context, English/Portuguese replies, and instructions attempting to suppress esc
 ## Known limitations
 
 - Chat reads an in-memory demonstration calendar only; no Google/real clinic calendar is
-  connected. Confirmation, actual booking, rescheduling, and cancellation are unavailable.
-  Offers and selected slots are unreserved snapshots. Selection retains the saved check time;
+  connected. Actual booking, rescheduling, and cancellation are unavailable; confirmation only
+  records approval of a draft. Offers and selected slots are unreserved snapshots. Selection retains the saved check time;
   the calendar must be checked again before a future booking write. There is no offer-age TTL.
 - History belongs to one API process and disappears on restart. It has no length cap or
   expiration. "New conversation" changes the id; it does not delete the previous server history.

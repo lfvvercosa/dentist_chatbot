@@ -76,10 +76,19 @@ highlighted statement and the relevant proposal/stage when asking for help with 
 | `PreferenceResolver.resolve` | Detached preference changes, validation, and completeness |
 | `AvailabilityService.find_slots` | Exact candidates calculated through the mock calendar |
 | `resolve_slot_selection` | Lookup of a saved option without another calendar read |
+| `resolve_confirmation` | Match consent to the pre-turn proposal ID, exact future slot, and stage |
 | `_apply_state` | Apply the proposed successful fields before saving history |
 
 The mock is the active calendar; there are no Google calls or booking writes. Debugger variable
 inspection lets you see replies without adding patient text to application logs.
+
+After selecting an option, inspect `state.booking_proposal` and `state.stage` at the final
+breakpoint. The proposal holds the selected slot and its server-generated summary ID; the
+stage is `awaiting_confirmation`. In the following request, `result.confirmation_update` can
+refer to that ID. A matching clear approval moves to `ready_to_book`, while the actual reply
+says that nothing is booked yet. Repeated approval retains the ID. Changing a preference
+clears the proposal, and a new selection creates a new ID. "No" to the summary or explicit
+whole-request abandonment clears the draft. Restart the no-reload API after loading this code.
 
 VS Code documents the [Python debugger](https://code.visualstudio.com/docs/python/debugging)
 and [compound launch configurations](https://code.visualstudio.com/docs/debugtest/debugging-configuration#_compound-launch-configurations).
