@@ -130,6 +130,11 @@ def run_case(case: EvalCase, service: ConversationService, llm: RecordingLLM) ->
                         if llm.last_result.slot_update is not None
                         else None
                     ),
+                    "confirmation_update": (
+                        llm.last_result.confirmation_update.model_dump(mode="json")
+                        if llm.last_result.confirmation_update is not None
+                        else None
+                    ),
                 }
                 if case.expected_escalation is not None:
                     expected = case.expected_escalation[index]

@@ -9,7 +9,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api.routes import get_conversation_service
-from app.core.scheduling_config import load_scheduling_config
 from app.llm.client import ChatMessage, LLMError
 from app.main import app
 from app.schemas.appointment import (
@@ -21,59 +20,8 @@ from app.schemas.appointment import (
     TimePreference,
     TimePreferenceUpdate,
 )
-from app.schemas.calendar import TimeInterval
-from app.services.availability import AvailabilityService
-from app.services.calendar import CalendarError, MockCalendarService
-from app.services.conversation import ConversationService
 
 ZONE = ZoneInfo("America/Sao_Paulo")
-
-
-class CountingCalendar(MockCalendarService):
-    def __init__(self, clinic):
-        super().__init__(
-            {dentist.id: [] for dentist in clinic.dentists}
-            | {
-                "ana": [
-                    TimeInterval(start="2026-11-19T08:30:00-03:00", end="2026-11-19T10:00:00-03:00")
-                ]
-            }
-        )
-        self.reads = 0
-        self.fail = False
-
-    def get_busy_intervals(self, dentist_id, window):
-        self.reads += 1
-        if self.fail:
-            raise CalendarError("test read failure")
-        return super().get_busy_intervals(dentist_id, window)
-
-
-@pytest.fixture
-def offered(fake_llm, clinic_config, escalation_service):
-    calendar = CountingCalendar(clinic_config)
-    clock = [datetime(2026, 11, 18, 9, tzinfo=ZONE)]
-    service = ConversationService(
-        fake_llm,
-        "base prompt",
-        escalation_service,
-        clinic_config,
-        availability=AvailabilityService(clinic_config, calendar, load_scheduling_config()),
-        clock=lambda: clock[0],
-    )
-    fake_llm.intent = "booking"
-    fake_llm.service_update = ServicePreferenceUpdate(action="set", service_id="consultation")
-    fake_llm.dentist_update = DentistPreferenceUpdate(action="set", dentist_id="ana")
-    fake_llm.date_update = DatePreferenceUpdate(
-        action="set", date_range=DatePreference(start_date="2026-11-19", end_date="2026-11-19")
-    )
-    fake_llm.time_update = TimePreferenceUpdate(
-        action="set", preference=TimePreference(kind="morning", start_time=None, end_time=None)
-    )
-    service.handle_message("one", "A consultation with Ana tomorrow morning")
-    for field in ("service_update", "dentist_update", "date_update", "time_update"):
-        setattr(fake_llm, field, None)
-    return service, calendar, clock
 
 
 def choose(fake_llm, number=2):
@@ -91,7 +39,9 @@ def test_choice_uses_saved_exact_option_and_saves_actual_summary(
     choose(fake_llm)
     caplog.set_level(logging.INFO, logger="app.services.conversation")
     reply = service.handle_message("one", "Private patient selection")
-    assert state.stage == "slot_selected" and state.selected_slot == before.candidate_slots[1]
+    assert (
+        state.stage == "awaiting_confirmation" and state.selected_slot == before.candidate_slots[1]
+    )
     assert state.candidate_slots == before.candidate_slots
     assert state.slots_checked_at == before.slots_checked_at and calendar.reads == 1
     assert "2026-11-19 10:00:00-03:00 → 2026-11-19 10:30:00-03:00" in reply
@@ -101,12 +51,12 @@ def test_choice_uses_saved_exact_option_and_saves_actual_summary(
         "nada foi reservado ou agendado"
         if language == "pt"
         else "nothing has been reserved or booked"
-    ) in reply
-    assert (
-        "Confirmação e agendamento" if language == "pt" else "Confirmation and booking"
-    ) in reply
+    ) in reply.lower()
+    assert ("Você confirma" if language == "pt" else "Do you confirm") in reply
     assert state.messages[-1] == ChatMessage("assistant", reply)
-    assert "stage=slot_selected" in caplog.text and "availability=not_searched" in caplog.text
+    assert (
+        "stage=awaiting_confirmation" in caplog.text and "availability=not_searched" in caplog.text
+    )
     assert "Private patient" not in caplog.text and "Dr. Ana" not in caplog.text
 
 
@@ -121,7 +71,7 @@ def test_reselection_keeps_numbering_and_bare_consent_only_repeats_summary(offer
     assert "10:15:00-03:00" in summary
     fake_llm.slot_update = SlotSelectionUpdate(action="keep", option_number=None)
     assert service.handle_message("one", "Yes, confirm and book it") == summary
-    assert state.stage == "slot_selected" and calendar.reads == 1
+    assert state.stage == "awaiting_confirmation" and calendar.reads == 1
 
 
 def test_faq_preserves_selection_and_supplies_it_in_next_prompt(offered, fake_llm):
@@ -134,7 +84,7 @@ def test_faq_preserves_selection_and_supplies_it_in_next_prompt(offered, fake_ll
     fake_llm.service_update = ServicePreferenceUpdate(action="set", service_id="unknown")
     choose(fake_llm, 999)
     assert service.handle_message("one", "What are the opening hours?") == "reply 3"
-    assert state.selected_slot == before.selected_slot and state.stage == "slot_selected"
+    assert state.selected_slot == before.selected_slot and state.stage == "awaiting_confirmation"
     assert state.candidate_slots == before.candidate_slots and calendar.reads == 1
     context = json.loads(fake_llm.calls[-1][0].rsplit("\n", 1)[1])["current_workflow_state"]
     assert context["selected_slot"] == before.selected_slot.model_dump(mode="json")

@@ -7,6 +7,7 @@ from pydantic import ValidationError
 
 from app.llm.client import ChatMessage, LLMError
 from app.schemas.appointment import (
+    ConfirmationUpdate,
     DatePreference,
     DatePreferenceUpdate,
     DentistPreferenceUpdate,
@@ -181,6 +182,7 @@ def test_escalation_check_compares_the_model_decision_with_expected_level(
         "time_update": None,
         "booking_answer": None,
         "slot_update": None,
+        "confirmation_update": None,
     }
     assert match["turns"][0]["reply"] == escalation_service.reply("urgent", "pt")
     assert match["review"]["verdict"] == "pending"  # Classification check is not full review.
@@ -277,6 +279,7 @@ def test_evaluation_saves_the_exact_prompt_with_state_for_each_turn(
             "candidate_slots": [],
             "slots_checked_at": None,
             "selected_slot": None,
+            "booking_proposal": None,
         },
         {
             "stage": "collecting_preferences",
@@ -287,6 +290,7 @@ def test_evaluation_saves_the_exact_prompt_with_state_for_each_turn(
             "candidate_slots": [],
             "slots_checked_at": None,
             "selected_slot": None,
+            "booking_proposal": None,
         },
     ]
 
@@ -353,7 +357,7 @@ def test_evaluation_serializes_time_proposals_and_saved_time_context(
     json.dumps(result)
 
 
-def test_evaluation_records_selection_proposal_summary_and_selected_snapshot(
+def test_evaluation_records_selection_summary_and_bound_approval(
     fake_llm, escalation_service, clinic_config, fixed_clock, availability_factory, monkeypatch
 ):
     fake_llm.intent = "booking"
@@ -373,8 +377,14 @@ def test_evaluation_records_selection_proposal_summary_and_selected_snapshot(
                 setattr(fake_llm, field, None)
             fake_llm.slot_update = SlotSelectionUpdate(action="set", option_number=2)
         elif len(fake_llm.calls) == 2:
-            fake_llm.intent = "other"
             fake_llm.slot_update = None
+            state = next(iter(service._states.values()))
+            fake_llm.confirmation_update = ConfirmationUpdate(
+                action="confirm", proposal_id=state.booking_proposal.proposal_id
+            )
+        elif len(fake_llm.calls) == 3:
+            fake_llm.intent = "other"
+            fake_llm.confirmation_update = None
         return original_generate(system, messages)
 
     monkeypatch.setattr(fake_llm, "generate", respond)
@@ -390,19 +400,26 @@ def test_evaluation_records_selection_proposal_summary_and_selected_snapshot(
     report = run_case(
         EvalCase(
             id="selection",
-            messages=["Complete", "Option 2", "Opening hours?"],
+            messages=["Complete", "Option 2", "Yes", "Opening hours?"],
             criteria=["Summarize the exact selected option"],
         ),
         service,
         llm,
     )
-    first, selected, faq = report["turns"]
+    first, selected, approved, faq = report["turns"]
     assert selected["decision"]["slot_update"] == {"action": "set", "option_number": 2}
     assert selected["reply"].startswith("Opção de demonstração selecionada")
     offers = json.loads(selected["system_prompt"].rsplit("\n", 1)[1])["current_workflow_state"]
     snapshot = json.loads(faq["system_prompt"].rsplit("\n", 1)[1])["current_workflow_state"]
     assert snapshot["selected_slot"] == offers["candidate_slots"][1]
-    assert snapshot["stage"] == "slot_selected"
-    assert fake_llm.calls[2][1][-2] == ChatMessage("assistant", selected["reply"])
+    pending = json.loads(approved["system_prompt"].rsplit("\n", 1)[1])["current_workflow_state"]
+    assert approved["decision"]["confirmation_update"] == {
+        "action": "confirm",
+        "proposal_id": pending["booking_proposal"]["proposal_id"],
+    }
+    assert approved["reply"].startswith("Aprovação registrada")
+    assert snapshot["stage"] == "ready_to_book"
+    assert snapshot["booking_proposal"] == pending["booking_proposal"]
+    assert fake_llm.calls[3][1][-2] == ChatMessage("assistant", approved["reply"])
     assert "Opções verificadas" in first["reply"]
     json.dumps(report)

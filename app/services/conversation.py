@@ -83,6 +83,7 @@ def _apply_state(state: ConversationState, proposed: ConversationState) -> None:
     state.candidate_slots = proposed.candidate_slots
     state.slots_checked_at = proposed.slots_checked_at
     state.selected_slot = proposed.selected_slot
+    state.booking_proposal = proposed.booking_proposal
 
 
 def _log_success(

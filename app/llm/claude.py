@@ -77,6 +77,7 @@ class ClaudeClient(LLMClient):
             date_update=decision.date_update,
             time_update=decision.time_update,
             slot_update=decision.slot_update,
+            confirmation_update=decision.confirmation_update,
             booking_answer=decision.booking_answer,
         )
 

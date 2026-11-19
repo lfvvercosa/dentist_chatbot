@@ -4,6 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.llm.client import ConversationIntent, EscalationLevel, ResponseLanguage
 from app.schemas.appointment import (
+    ConfirmationUpdate,
     DatePreferenceUpdate,
     DentistPreferenceUpdate,
     ServicePreferenceUpdate,
@@ -34,6 +35,9 @@ class AssistantDecision(BaseModel):
     )
     slot_update: SlotSelectionUpdate = Field(
         description="Choice from saved candidate slots; keep or clarify with clear otherwise"
+    )
+    confirmation_update: ConfirmationUpdate = Field(
+        description="Response to the exact saved booking proposal, or abandonment of the draft"
     )
     booking_answer: str | None = Field(
         description="Clinic answer alongside a booking follow-up; no questions; null otherwise"

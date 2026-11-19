@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from app.schemas.appointment import (
+    ConfirmationUpdate,
     DatePreferenceUpdate,
     DentistPreferenceUpdate,
     ServicePreferenceUpdate,
@@ -38,6 +39,7 @@ class LLMResult:
     date_update: DatePreferenceUpdate | None = None
     time_update: TimePreferenceUpdate | None = None
     slot_update: SlotSelectionUpdate | None = None
+    confirmation_update: ConfirmationUpdate | None = None
     booking_answer: str | None = None
 
 

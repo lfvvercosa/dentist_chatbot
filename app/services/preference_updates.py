@@ -41,6 +41,7 @@ class PreferenceResolver:
                 "candidate_slots": [],
                 "slots_checked_at": None,
                 "selected_slot": None,
+                "booking_proposal": None,
             }
         )
         self._merge_updates(draft, result)

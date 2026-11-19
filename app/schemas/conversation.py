@@ -8,12 +8,15 @@ from app.core.clinic_config import Slug
 from app.llm.client import ChatMessage
 from app.schemas.appointment import (
     AppointmentSlot,
+    BookingProposal,
     DatePreference,
     DentistPreference,
     TimePreference,
 )
 
-ConversationStage = Literal["chatting", "collecting_preferences", "offering_slots", "slot_selected"]
+ConversationStage = Literal[
+    "chatting", "collecting_preferences", "offering_slots", "awaiting_confirmation", "ready_to_book"
+]
 
 
 class ConversationState(BaseModel):
@@ -30,3 +33,4 @@ class ConversationState(BaseModel):
     candidate_slots: list[AppointmentSlot] = Field(default_factory=list)
     slots_checked_at: AwareDatetime | None = None
     selected_slot: AppointmentSlot | None = None
+    booking_proposal: BookingProposal | None = None

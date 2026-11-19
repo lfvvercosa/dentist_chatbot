@@ -6,10 +6,10 @@ from typing import Literal
 
 from app.core.clinic_config import ClinicConfig
 from app.llm.client import LLMResult
-from app.schemas.appointment import DentistPreference
 from app.schemas.conversation import ConversationState
 from app.services.availability import AvailabilityService, SlotSearchError
 from app.services.calendar import CalendarError
+from app.services.confirmation import clear_booking, resolve_confirmation, withdraw_booking
 from app.services.escalation import EscalationService
 from app.services.preference_updates import PreferenceResolver
 from app.services.preferences import PreferenceStatus, missing_preference_reply
@@ -50,19 +50,11 @@ class SchedulingWorkflow:
         """Return a proposed turn; now is the caller's captured clinic-local clock."""
         escalation_reply = self._escalation.reply(result.escalation, result.language)
         if escalation_reply is not None:
-            cleared = state.model_copy(
-                update={
-                    "stage": "chatting",
-                    "service_id": None,
-                    "dentist_preference": DentistPreference(),
-                    "date_preference": None,
-                    "time_preference": None,
-                    "candidate_slots": [],
-                    "slots_checked_at": None,
-                    "selected_slot": None,
-                }
-            )
-            return TurnOutcome(next_state=cleared, reply=escalation_reply)
+            return TurnOutcome(next_state=clear_booking(state), reply=escalation_reply)
+        withdrawal = withdraw_booking(state, result)
+        if withdrawal is not None:
+            draft, reply = withdrawal
+            return TurnOutcome(next_state=draft, reply=reply)
         if result.intent != "booking":
             return TurnOutcome(next_state=state, reply=result.text)
         return self._booking_turn(state, result, now)
@@ -83,6 +75,9 @@ class SchedulingWorkflow:
                 )
                 if selection is not None:
                     draft, reply = selection
+                    confirmation = resolve_confirmation(state, result, self._clinic, now)
+                    if confirmation is not None:
+                        draft, reply = confirmation
                 else:
                     reply, availability_outcome = self._search_slots(draft, result, now)
             else:

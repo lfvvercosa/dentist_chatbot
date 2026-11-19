@@ -2,6 +2,7 @@
 
 import json
 from types import SimpleNamespace
+from uuid import UUID
 
 import anthropic
 import httpx2
@@ -10,6 +11,7 @@ import pytest
 from app.llm.claude import ClaudeClient
 from app.llm.client import ChatMessage, LLMError
 from app.schemas.appointment import (
+    ConfirmationUpdate,
     DatePreference,
     DatePreferenceUpdate,
     DentistPreferenceUpdate,
@@ -53,6 +55,7 @@ def make_response(
     time_update=None,
     booking_answer=None,
     slot_update=None,
+    confirmation_update=None,
 ):
     body = json.dumps(
         {
@@ -78,6 +81,7 @@ def make_response(
             ),
             "booking_answer": booking_answer,
             "slot_update": slot_update or {"action": "keep", "option_number": None},
+            "confirmation_update": confirmation_update or {"action": "keep", "proposal_id": None},
         }
     )
     return SimpleNamespace(
@@ -160,6 +164,68 @@ def test_slot_proposal_is_returned_from_validated_decision(action, number):
     sdk = StubSDK(response=make_response(slot_update={"action": action, "option_number": number}))
     result = make_client(sdk).generate(system="s", messages=[ChatMessage("user", "My choice")])
     assert result.slot_update == SlotSelectionUpdate(action=action, option_number=number)
+
+
+@pytest.mark.parametrize("action", ["keep", "confirm", "decline", "abandon"])
+def test_confirmation_proposal_is_validated_and_returned(action):
+    reference = "11111111-1111-4111-8111-111111111111" if action in ("confirm", "decline") else None
+    sdk = StubSDK(
+        response=make_response(confirmation_update={"action": action, "proposal_id": reference})
+    )
+    result = make_client(sdk).generate(system="s", messages=[ChatMessage("user", "My response")])
+    assert result.confirmation_update == ConfirmationUpdate(
+        action=action, proposal_id=UUID(reference) if reference else None
+    )
+
+
+@pytest.mark.parametrize(
+    "update",
+    [
+        None,
+        {"action": "confirm", "proposal_id": None},
+        {"action": "decline", "proposal_id": None},
+        {"action": "confirm", "proposal_id": "not-a-uuid"},
+        {"action": "keep", "proposal_id": "11111111-1111-4111-8111-111111111111"},
+        {"action": "abandon", "proposal_id": "11111111-1111-4111-8111-111111111111"},
+        {"action": "book", "proposal_id": None},
+        {"action": "keep", "proposal_id": None, "extra": True},
+    ],
+)
+def test_malformed_confirmation_is_rejected_without_exposing_patient_content(update):
+    sdk = StubSDK(
+        response=make_response(raw=json.dumps(_VALID_DECISION | {"confirmation_update": update}))
+    )
+    with pytest.raises(LLMError, match="invalid assistant decision") as error:
+        make_client(sdk).generate(system="s", messages=[ChatMessage("user", "patient secret")])
+    assert "patient secret" not in str(error.value)
+
+
+def test_real_adapter_confirms_only_saved_summary_and_retains_approval_after_bad_response(pending):
+    service, calendar, _ = pending
+    proposal = service._states["one"].booking_proposal
+    sdk = StubSDK(
+        response=make_response(
+            intent="booking",
+            language="en",
+            text="Appointment booked!",
+            confirmation_update={"action": "confirm", "proposal_id": str(proposal.proposal_id)},
+        )
+    )
+    service._llm = make_client(sdk)
+    reply = service.handle_message("one", "Yes")
+    assert reply.startswith("Approval recorded") and "Appointment booked!" not in reply
+    assert service._states["one"].stage == "ready_to_book" and calendar.reads == 1
+    context = json.loads(sdk.calls[-1]["system"].rsplit("\n", 1)[1])["current_workflow_state"]
+    assert context["booking_proposal"] == proposal.model_dump(mode="json")
+    before = service._states["one"].model_copy(deep=True)
+    sdk._response = make_response(
+        raw=json.dumps(
+            _VALID_DECISION | {"confirmation_update": {"action": "confirm", "proposal_id": None}}
+        )
+    )
+    with pytest.raises(LLMError):
+        service.handle_message("one", "Malformed consent")
+    assert service._states["one"] == before
 
 
 @pytest.mark.parametrize(
@@ -397,6 +463,7 @@ _VALID_DECISION = {
     "time_update": {"action": "keep", "preference": None},
     "booking_answer": None,
     "slot_update": {"action": "keep", "option_number": None},
+    "confirmation_update": {"action": "keep", "proposal_id": None},
 }
 
 
@@ -524,6 +591,7 @@ def test_malformed_time_response_preserves_service_state_and_recovers_on_the_nex
         _VALID_DECISION | {"booking_answer": 123},
         {k: v for k, v in _VALID_DECISION.items() if k != "time_update"},
         {k: v for k, v in _VALID_DECISION.items() if k != "slot_update"},
+        {k: v for k, v in _VALID_DECISION.items() if k != "confirmation_update"},
         _VALID_DECISION | {"escalation": "invalid"},
         _VALID_DECISION | {"language": "fr"},
         _VALID_DECISION | {"reply": "   "},

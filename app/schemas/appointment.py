@@ -2,6 +2,7 @@
 
 from datetime import date, time
 from typing import Literal
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -178,4 +179,30 @@ class SlotSelectionUpdate(BaseModel):
     def require_number_only_for_set(self) -> "SlotSelectionUpdate":
         if (self.action == "set") != (self.option_number is not None):
             raise ValueError("only set requires an option_number")
+        return self
+
+
+class BookingProposal(BaseModel):
+    """An immutable exact summary revision; approval is meaningful only for this ID and slot."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    proposal_id: UUID = Field(default_factory=uuid4)
+    slot: AppointmentSlot
+
+
+class ConfirmationUpdate(BaseModel):
+    """Interpreted response to a saved summary, or withdrawal of the entire booking draft."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    action: Literal["keep", "confirm", "decline", "abandon"]
+    proposal_id: UUID | None = Field(
+        description="Exact saved summary ID for confirm/decline; null for keep/abandon"
+    )
+
+    @model_validator(mode="after")
+    def require_id_only_for_summary_response(self) -> "ConfirmationUpdate":
+        if (self.action in ("confirm", "decline")) != (self.proposal_id is not None):
+            raise ValueError("only confirm and decline require a proposal_id")
         return self

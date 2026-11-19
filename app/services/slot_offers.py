@@ -46,23 +46,42 @@ def slot_offer_reply(
 def selected_slot_reply(
     slot: AppointmentSlot, clinic: ClinicConfig, language: ResponseLanguage
 ) -> str:
+    heading = "Opção de demonstração selecionada" if language == "pt" else "Selected demo option"
+    footer = (
+        "Você confirma esses dados para agendamento? Responda sim ou não. "
+        "Nada foi reservado ou agendado. Esta demonstração registra sua aprovação; "
+        "a criação na agenda ainda não está disponível."
+        if language == "pt"
+        else "Do you confirm these exact details for booking? Please answer yes or no. "
+        "Nothing has been reserved or booked. This demo records your approval; "
+        "calendar booking is not available yet."
+    )
+    return f"{heading}:\n\n{_slot_details(slot, clinic)}\n\n{footer}"
+
+
+def approved_slot_reply(
+    slot: AppointmentSlot, clinic: ClinicConfig, language: ResponseLanguage
+) -> str:
+    heading = (
+        "Aprovação registrada para o pedido de demonstração"
+        if language == "pt"
+        else "Approval recorded for the demo request"
+    )
+    footer = (
+        "Nada foi reservado ou agendado. A criação na agenda ainda não está disponível."
+        if language == "pt"
+        else "Nothing has been reserved or booked. Calendar booking is not available yet."
+    )
+    return f"{heading}:\n\n{_slot_details(slot, clinic)}\n\n{footer}"
+
+
+def _slot_details(slot: AppointmentSlot, clinic: ClinicConfig) -> str:
     service = next(item for item in clinic.services if item.id == slot.service_id)
     dentist = next(item for item in clinic.dentists if item.id == slot.dentist_id)
     zone = ZoneInfo(clinic.timezone)
     start = slot.interval.start.astimezone(zone).isoformat(sep=" ")
     end = slot.interval.end.astimezone(zone).isoformat(sep=" ")
-    heading = "Opção de demonstração selecionada" if language == "pt" else "Selected demo option"
-    details = f"{service.name} — {dentist.name} — {start} → {end} ({clinic.timezone})"
-    footer = (
-        "A disponibilidade pode ter mudado; nada foi reservado ou agendado. "
-        "Você pode alterar a escolha ou as preferências. Confirmação e agendamento "
-        "ainda não estão disponíveis."
-        if language == "pt"
-        else "Availability may have changed; nothing has been reserved or booked. "
-        "You can change the selection or preferences. Confirmation and booking "
-        "are not available yet."
-    )
-    return f"{heading}:\n\n{details}\n\n{footer}"
+    return f"{service.name} — {dentist.name} — {start} → {end} ({clinic.timezone})"
 
 
 def invalid_slot_reply(count: int, language: ResponseLanguage) -> str:
